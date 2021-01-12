@@ -1,0 +1,29 @@
+{
+    "name": "customerio-plugin",
+    "version": "0.0.1",
+    "description": "Send event data and emails into Customer.io.",
+    "main": "index.js",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/PostHog/customerio-plugin.git"
+    },
+    "author": "Yakko Majuri",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/PostHog/customerio-plugin/issues"
+    },
+    "homepage": "https://github.com/PostHog/customerio-plugin#readme",
+    "devDependencies": {
+        "husky": "^4.3.0",
+        "lint-staged": "^10.5.2",
+        "prettier": "^2.2.1"
+    },
+    "husky": {
+        "hooks": {
+            "pre-commit": "lint-staged"
+        }
+    },
+    "lint-staged": {
+        "*.{js,ts,tsx,json,yml}": "prettier --write"
+    }
+}
