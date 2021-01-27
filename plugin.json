@@ -1,25 +1,24 @@
 {
-    "name": "customerio-plugin",
+    "name": "Customer.io",
     "url": "https://github.com/PostHog/customerio-plugin",
     "description": "Send event data and emails into Customer.io.",
     "main": "index.js",
-    "config": {
-        "customerioSiteId": {
+    "config": [
+        {
+            "key": "customerioSiteId",
             "hint": "Provided during the Customer.io setup",
             "name": "Customer.io Site ID",
             "type": "string",
-            "order": 1,
             "default": "",
             "required": true
         },
-        "customerioToken": {
+        {
             "key": "customerioToken",
             "hint": "Provided during the Customer.io setup",
             "name": "Customer.io Token",
             "type": "string",
-            "order": 2,
             "default": "",
             "required": true
         }
-    }
+    ]
 }
