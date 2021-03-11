@@ -10,7 +10,8 @@
             "name": "Customer.io Site ID",
             "type": "string",
             "default": "",
-            "required": true
+            "required": true,
+            "secret": true
         },
         {
             "key": "customerioToken",
@@ -18,7 +19,8 @@
             "name": "Customer.io Token",
             "type": "string",
             "default": "",
-            "required": true
+            "required": true,
+            "secret": true
         }
     ]
 }
