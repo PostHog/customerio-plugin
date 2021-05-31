@@ -23,6 +23,11 @@
     chalk "^2.0.0"
     js-tokens "^4.0.0"
 
+"@posthog/plugin-contrib@^0.0.5":
+  version "0.0.5"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
+  integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
+
 "@types/parse-json@^4.0.0":
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/@types/parse-json/-/parse-json-4.0.0.tgz#2f8bb441434d163b35fb8ffdccd7138927ffb8c0"
