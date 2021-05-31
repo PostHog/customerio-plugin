@@ -21,8 +21,8 @@ async function setupPlugin({ config, global }) {
     }
 
     global.buffer = createBuffer({
-        limit: uploadMegabytes * 1024 * 1024,
-        timeoutSeconds: uploadMinutes * 60,
+        limit: 5 * 1024 * 1024,
+        timeoutSeconds: 60,
         onFlush: async (batch) => {
             for (const event of batch) {
                 await exportToCustomerio({ ...event }, global.customerioAuthHeader)
