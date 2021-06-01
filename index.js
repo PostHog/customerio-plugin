@@ -77,6 +77,8 @@ async function exportToCustomerio(event, authHeader) {
     if (!statusOk(eventInsertResponse)) {
         console.log(`Unable to send event ${event.event} to Customer.io`)
     }
+
+    console.log(`Uploaded ${event.event} to Customer.io`)
 }
 
 async function fetchWithRetry(url, options = {}, method = 'GET', isRetry = false) {
