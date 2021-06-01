@@ -24,6 +24,7 @@ export async function setupPlugin({ config, global }) {
         limit: 5 * 1024 * 1024,
         timeoutSeconds: 60,
         onFlush: async (batch) => {
+            console.log(`Flushing batch of length ${batch.length}`)
             for (const event of batch) {
                 await exportToCustomerio({ ...event }, global.customerioAuthHeader)
             }
