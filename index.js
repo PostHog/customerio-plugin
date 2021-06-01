@@ -37,32 +37,6 @@ export async function onEvent(event, { global }) {
 }
 
 async function exportToCustomerio(event, authHeader) {
-    /*     let customerResponse = await fetchWithRetry(
-        `https://beta-api.customer.io/v1/api/activities?customer_id=${event.distinct_id}`,
-        authHeader
-    )
-
-    if (customerResponse.status === 404) {
-        const options = isEmail(event.distinct_id)
-            ? {
-                  headers: {
-                      'Content-Type': 'application/x-www-form-urlencoded',
-                      ...authHeader.headers
-                  },
-                  body: JSON.stringify({ email: event.distinct_id })
-              }
-            : authHeader
-        customerResponse = await fetchWithRetry(
-            `https://track.customer.io/api/v1/customers/${event.distinct_id}`,
-            options,
-            'PUT'
-        )
-    }
-
-    if (!statusOk(customerResponse)) {
-        throw new Error('Error when connecting to Customer.io')
-    } */
-
     const eventInsertResponse = await fetchWithRetry(
         `https://track.customer.io/api/v1/customers/${event.distinct_id}/events`,
         {
