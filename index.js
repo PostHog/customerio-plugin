@@ -21,12 +21,12 @@ export async function setupPlugin({ config, global }) {
     }
 
     global.buffer = createBuffer({
-        limit: 5 * 1024 * 1024,
-        timeoutSeconds: 60,
+        limit: (1 / 5) * 1024 * 1024, // 200kb
+        timeoutSeconds: 5,
         onFlush: async (batch) => {
             console.log(`Flushing batch of length ${batch.length}`)
             for (const event of batch) {
-                await exportToCustomerio({ ...event }, global.customerioAuthHeader)
+                await exportToCustomerio(event, global.customerioAuthHeader)
             }
         }
     })
