@@ -1,6 +1,6 @@
 import { createBuffer } from '@posthog/plugin-contrib'
 
-async function setupPlugin({ config, global }) {
+export async function setupPlugin({ config, global }) {
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
