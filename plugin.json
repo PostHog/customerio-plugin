@@ -2,6 +2,7 @@
     "name": "Customer.io",
     "url": "https://github.com/PostHog/customerio-plugin",
     "description": "Send event data and emails into Customer.io.",
+    "posthogVersion": ">= 1.25.0",
     "main": "index.js",
     "config": [
         {

@@ -25,5 +25,8 @@
     },
     "lint-staged": {
         "*.{js,ts,tsx,json,yml}": "prettier --write"
+    },
+    "dependencies": {
+        "@posthog/plugin-contrib": "^0.0.5"
     }
 }

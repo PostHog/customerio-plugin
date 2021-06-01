@@ -1,3 +1,5 @@
+import { createBuffer } from '@posthog/plugin-contrib'
+
 async function setupPlugin({ config, global }) {
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
@@ -5,8 +7,8 @@ async function setupPlugin({ config, global }) {
 
     global.customerioAuthHeader = {
         headers: {
-            Authorization: `Basic ${customerioBase64AuthToken}`,
-        },
+            Authorization: `Basic ${customerioBase64AuthToken}`
+        }
     }
 
     const authResponse = await fetchWithRetry(
@@ -17,13 +19,20 @@ async function setupPlugin({ config, global }) {
     if (!statusOk(authResponse)) {
         throw new Error('Unable to connect to Customer.io')
     }
+
+    global.buffer = createBuffer({
+        limit: 5 * 1024 * 1024,
+        timeoutSeconds: 60,
+        onFlush: async (batch) => {
+            for (const event of batch) {
+                await exportToCustomerio({ ...event }, global.customerioAuthHeader)
+            }
+        }
+    })
 }
 
-async function processEventBatch(events, { global }) {
-    for (let event of events) {
-        await exportToCustomerio({ ...event }, global.customerioAuthHeader)
-    }
-    return events
+export async function onEvent(event, { global }) {
+    global.buffer.add(event)
 }
 
 async function exportToCustomerio(event, authHeader) {
@@ -37,9 +46,9 @@ async function exportToCustomerio(event, authHeader) {
             ? {
                   headers: {
                       'Content-Type': 'application/x-www-form-urlencoded',
-                      ...authHeader.headers,
+                      ...authHeader.headers
                   },
-                  body: JSON.stringify({ email: event.distinct_id }),
+                  body: JSON.stringify({ email: event.distinct_id })
               }
             : authHeader
         customerResponse = await fetchWithRetry(
@@ -58,9 +67,9 @@ async function exportToCustomerio(event, authHeader) {
         {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
-                ...authHeader.headers,
+                ...authHeader.headers
             },
-            body: JSON.stringify({ name: event.event, data: event.properties }),
+            body: JSON.stringify({ name: event.event, data: event.properties })
         },
         'POST'
     )
