@@ -37,7 +37,7 @@ export async function onEvent(event, { global }) {
 }
 
 async function exportToCustomerio(event, authHeader) {
-    let customerResponse = await fetchWithRetry(
+    /*     let customerResponse = await fetchWithRetry(
         `https://beta-api.customer.io/v1/api/activities?customer_id=${event.distinct_id}`,
         authHeader
     )
@@ -61,7 +61,7 @@ async function exportToCustomerio(event, authHeader) {
 
     if (!statusOk(customerResponse)) {
         throw new Error('Error when connecting to Customer.io')
-    }
+    } */
 
     const eventInsertResponse = await fetchWithRetry(
         `https://track.customer.io/api/v1/customers/${event.distinct_id}/events`,
