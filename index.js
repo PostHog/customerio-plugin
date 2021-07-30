@@ -1,6 +1,7 @@
 import { createBuffer } from '@posthog/plugin-contrib'
 
 export async function setupPlugin({ config, global }) {
+    
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
@@ -15,9 +16,13 @@ export async function setupPlugin({ config, global }) {
         'https://beta-api.customer.io/v1/api/info/ip_addresses',
         global.customerioAuthHeader
     )
+    
+    if (!isUnAuthorized(authResponse)){
+        throw new Error('Unable to connect to Customer.io')
+    }
 
     if (!statusOk(authResponse)) {
-        throw new Error('Unable to connect to Customer.io')
+        throw new RetryError('Service is down, retry later')
     }
 
     global.buffer = createBuffer({
@@ -69,6 +74,10 @@ async function fetchWithRetry(url, options = {}, method = 'GET', isRetry = false
 
 function statusOk(res) {
     return String(res.status)[0] === '2'
+}
+
+function isUnAuthorized(res){
+    return String(res.status) == '401'
 }
 
 function isEmail(email) {
