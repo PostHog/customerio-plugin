@@ -17,7 +17,7 @@ export async function setupPlugin({ config, global }) {
         global.customerioAuthHeader
     )
     
-    if (!isUnAuthorized(authResponse)){
+    if (!statusUnauthorized(authResponse)){
         throw new Error('Unable to connect to Customer.io')
     }
 
@@ -73,11 +73,11 @@ async function fetchWithRetry(url, options = {}, method = 'GET', isRetry = false
 }
 
 function statusOk(res) {
-    return String(res.status)[0] === '2'
+    return Math.floor(res.status / 100) === 2
 }
 
-function isUnAuthorized(res){
-    return String(res.status) == '401'
+function statusUnauthorized(res){
+    return res.status == 401
 }
 
 function isEmail(email) {
