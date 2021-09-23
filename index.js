@@ -17,7 +17,7 @@ export async function setupPlugin({ config, global }) {
         global.customerioAuthHeader
     )
     
-    if (!statusUnauthorized(authResponse)){
+    if (statusUnauthorized(authResponse)){
         throw new Error('Unable to connect to Customer.io')
     }
 
