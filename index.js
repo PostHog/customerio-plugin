@@ -25,13 +25,18 @@ export async function setupPlugin({ config, global }) {
         throw new RetryError('Service is down, retry later')
     }
 
+    const eventNames = (config.eventsToSend || '').split(',').filter(String)
+
     global.buffer = createBuffer({
         limit: (1 / 5) * 1024 * 1024, // 200kb
         timeoutSeconds: 5,
         onFlush: async (batch) => {
             console.log(`Flushing batch of length ${batch.length}`)
             for (const event of batch) {
-                await exportToCustomerio(event, global.customerioAuthHeader)
+                if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
+                    continue;
+                }
+                 await exportToCustomerio(event, global.customerioAuthHeader)
             }
         }
     })
