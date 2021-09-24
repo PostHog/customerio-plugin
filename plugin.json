@@ -22,6 +22,12 @@
             "default": "",
             "required": true,
             "secret": true
+        },
+        {
+            "key": "eventsToSend",
+            "name": "List of events to send to customerio. If not specified all events will be sent",
+            "type": "string",
+            "hint": "Comma separated list of events to include if specified"
         }
     ]
 }
