@@ -25,7 +25,7 @@ export async function setupPlugin({ config, global }) {
         throw new RetryError('Service is down, retry later')
     }
 
-    const eventNames = (config.eventsToSend || '').split(',').filter(String)
+    const eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
 
     global.buffer = createBuffer({
         limit: (1 / 5) * 1024 * 1024, // 200kb
@@ -33,10 +33,10 @@ export async function setupPlugin({ config, global }) {
         onFlush: async (batch) => {
             console.log(`Flushing batch of length ${batch.length}`)
             for (const event of batch) {
-                if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
-                    continue;
+                if (eventNames.includes(event.event)) { 
+                    continue
                 }
-                 await exportToCustomerio(event, global.customerioAuthHeader)
+                await exportToCustomerio(event, global.customerioAuthHeader)
             }
         }
     })
