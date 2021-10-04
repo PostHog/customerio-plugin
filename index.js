@@ -33,7 +33,7 @@ export async function setupPlugin({ config, global }) {
         onFlush: async (batch) => {
             console.log(`Flushing batch of length ${batch.length}`)
             for (const event of batch) {
-                if (eventNames.includes(event.event)) { 
+                if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
                     continue
                 }
                 await exportToCustomerio(event, global.customerioAuthHeader)
