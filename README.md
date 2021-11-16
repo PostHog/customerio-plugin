@@ -2,7 +2,7 @@
 
 Send event data into [Customer.io](https://customer.io/). User emails will also be sent if available.
 
-![Customer.io Screenshot](readme-assets/customer-io.png)
+![Customer.io Screenshot](https://github.com/PostHog/customerio-plugin/raw/main/readme-assets/customer-io.png)
 
 ## Installation
 
