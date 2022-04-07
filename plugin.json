@@ -34,6 +34,7 @@
             "name": "Send events from anonymous users to Customer.io",
             "type": "choice",
             "hint": "Customer.io pricing is based on the number of customers. This is an option to only send events from users that have been identified. Take into consideration that merging after identification won't work (as those previously anonymous events won't be there).",
+            "default": "Send all events",
             "choices": [
                 "Send all events",
                 "Only send events from users that have been identified"
