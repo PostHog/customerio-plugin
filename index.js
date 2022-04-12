@@ -42,25 +42,43 @@ export async function setupPlugin({ config, global }) {
     })
 }
 
-export async function onEvent(event, { global }) {
+export async function onEvent(event, { config, global }) {
+    if (
+        config.sendEventsFromAnonymousUsers === "Only send events from users that have been identified" &&
+        isAnonymousIdentifier(event.distinct_id)
+    ) {
+        return
+    }
+
     global.buffer.add(event)
 }
 
-async function exportToCustomerio(event, authHeader) {
-    const eventInsertResponse = await fetchWithRetry(
-        `https://track.customer.io/api/v1/customers/${event.distinct_id}/events`,
-        {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                ...authHeader.headers
-            },
-            body: JSON.stringify({ name: event.event, data: event.properties })
-        },
-        'POST'
-    )
+async function exportToCustomerio(payload, authHeader) {
+    const { event, distinct_id, properties } = payload
 
-    if (!statusOk(eventInsertResponse)) {
-        console.log(`Unable to send event ${event.event} to Customer.io`)
+    const baseCustomersURL = `https://track.customer.io/api/v1/customers/${distinct_id}`
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', ...authHeader.headers }
+
+    const isIdentifyEvent = event === '$identify'
+    const email = isIdentifyEvent && getEmailFromEvent(payload)
+
+    let response
+
+    if (isIdentifyEvent) {
+        if (!email) {
+            console.log(`Email not found in user ${distinct_id}. Unable to create customer in Customer.io`)
+            return
+        }
+
+        const body = JSON.stringify({ email, ...properties })
+        response = await fetchWithRetry(baseCustomersURL, { headers, body }, 'PUT')
+    } else {
+        const body = JSON.stringify({ name: event, data: properties })
+        response = await fetchWithRetry(`${baseCustomersURL}/events`, { headers, body }, 'POST')
+    }
+
+    if (!statusOk(response)) {
+        console.log(isIdentifyEvent ? `Unable to identify user ${email} in Customer.io` : `Unable to send event ${event} to Customer.io`)
     }
 }
 
@@ -88,4 +106,26 @@ function statusUnauthorized(res){
 function isEmail(email) {
     const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
     return re.test(String(email).toLowerCase())
+}
+
+function isAnonymousIdentifier(distinct_id) {
+    const re = /^[\w]{14}-[\w]{14}-[\w]{8}-[\w]{6}-[\w]{14}$/g
+    return re.test(String(distinct_id))
+}
+
+function getEmailFromEvent(event) {
+    if (isEmail(event.distinct_id)) {
+        return event.distinct_id
+    } 
+
+    const getEmailFromKey = (key) => {
+        const object = event[key]
+        if (!object) return false
+        if (!Object.keys(object).includes('email')) return false
+
+        const email = object['email']
+        return isEmail(email) && email
+    }
+    
+    return getEmailFromKey('$set') || getEmailFromKey('$set_once') || getEmailFromKey('properties')
 }
