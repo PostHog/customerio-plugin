@@ -36,7 +36,12 @@ export async function setupPlugin({ config, global }) {
                 if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
                     continue
                 }
-                await exportToCustomerio(event, global.customerioAuthHeader)
+
+                try {
+                    await exportToCustomerio(event, global.customerioAuthHeader)
+                } catch (error) {
+                    console.error("Failed to export to Customer.io")
+                }
             }
         }
     })
@@ -45,7 +50,7 @@ export async function setupPlugin({ config, global }) {
 export async function onEvent(event, { config, global }) {
     if (
         config.sendEventsFromAnonymousUsers === "Only send events from users that have been identified" &&
-        isAnonymousIdentifier(event.distinct_id)
+        isAnonymousUser(event)
     ) {
         return
     }
@@ -78,7 +83,7 @@ async function exportToCustomerio(payload, authHeader) {
     }
 
     if (!statusOk(response)) {
-        console.log(isIdentifyEvent ? `Unable to identify user ${email} in Customer.io` : `Unable to send event ${event} to Customer.io`)
+        console.error(isIdentifyEvent ? `Unable to identify user ${email} in Customer.io` : `Unable to send event ${event} to Customer.io`)
     }
 }
 
@@ -108,7 +113,10 @@ function isEmail(email) {
     return re.test(String(email).toLowerCase())
 }
 
-function isAnonymousIdentifier(distinct_id) {
+function isAnonymousUser({ distinct_id, properties }) {
+    if (properties) return properties['$device_id'] === distinct_id
+
+    // A fallback in case the event doesn't have `properties` set, for some reason.
     const re = /^[\w]{14}-[\w]{14}-[\w]{8}-[\w]{6}-[\w]{14}$/g
     return re.test(String(distinct_id))
 }
