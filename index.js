@@ -55,6 +55,7 @@ export async function onEvent(event, { config, global }) {
         return
     }
 
+    console.log('onEvent', event.event, event.distinct_id)
     global.buffer.add(event)
 }
 
@@ -66,6 +67,8 @@ async function exportToCustomerio(payload, authHeader) {
 
     const isIdentifyEvent = event === '$identify'
     const email = isIdentifyEvent && getEmailFromEvent(payload)
+    
+    console.log('exportToCustomerio', email)
 
     let response
 
