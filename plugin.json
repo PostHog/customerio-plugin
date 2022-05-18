@@ -37,7 +37,8 @@
             "default": "Send all events",
             "choices": [
                 "Send all events",
-                "Only send events from users that have been identified"
+                "Only send events from users that have been identified",
+                "Only send events from users with emails"
             ]
         }
     ]
