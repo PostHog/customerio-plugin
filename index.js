@@ -68,7 +68,6 @@ async function exportToCustomerio(payload, authHeader) {
     const isIdentifyEvent = event === '$identify'
     const email = isIdentifyEvent && getEmailFromEvent(payload)
     
-    console.log('exportToCustomerio', email)
 
     let response
 
@@ -81,6 +80,9 @@ async function exportToCustomerio(payload, authHeader) {
         const body = JSON.stringify({ email, ...properties })
         response = await fetchWithRetry(baseCustomersURL, { headers, body }, 'PUT')
     } else {
+        if (!email && config.sendEventsFromAnonymousUsers === 'Only send events from users with emails') {
+            return
+        }
         const body = JSON.stringify({ name: event, data: properties })
         response = await fetchWithRetry(`${baseCustomersURL}/events`, { headers, body }, 'POST')
     }
