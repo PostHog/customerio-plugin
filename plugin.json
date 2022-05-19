@@ -40,6 +40,16 @@
                 "Only send events from users that have been identified",
                 "Only send events from users with emails"
             ]
+        },
+        {
+            "key": "host",
+            "name": "API host to use",
+            "type": "choice",
+            "default": "track.customer.io",
+            "choices": [
+                "track.customer.io",
+                "track-eu.customer.io"
+            ]
         }
     ]
 }
