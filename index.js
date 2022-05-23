@@ -38,7 +38,7 @@ export async function setupPlugin({ config, global }) {
                 }
 
                 try {
-                    await exportToCustomerio(event, global.customerioAuthHeader)
+                    await exportToCustomerio(event, global.customerioAuthHeader, config)
                 } catch (error) {
                     console.error("Failed to export to Customer.io with error", error.message)
                 }
@@ -59,7 +59,7 @@ export async function onEvent(event, { config, global }) {
     global.buffer.add(event)
 }
 
-async function exportToCustomerio(payload, authHeader) {
+async function exportToCustomerio(payload, authHeader, config) {
     const { event, distinct_id, properties } = payload
 
     const baseCustomersURL = `https://track.customer.io/api/v1/customers/${distinct_id}`
