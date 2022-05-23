@@ -40,7 +40,7 @@ export async function setupPlugin({ config, global }) {
                 try {
                     await exportToCustomerio(event, global.customerioAuthHeader)
                 } catch (error) {
-                    console.error("Failed to export to Customer.io")
+                    console.error("Failed to export to Customer.io with error", error.message)
                 }
             }
         }
