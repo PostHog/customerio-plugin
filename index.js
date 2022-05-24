@@ -18,33 +18,39 @@ export async function setupPlugin({ config, global }) {
     )
     
     if (statusUnauthorized(authResponse)){
+        console.error(String(authResponse))
         throw new Error('Unable to connect to Customer.io')
     }
 
     if (!statusOk(authResponse)) {
+        console.error(String(authResponse))
         throw new RetryError('Service is down, retry later')
     }
+    
+    try {
+        const eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
 
-    const eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
+        global.buffer = createBuffer({
+            limit: (1 / 5) * 1024 * 1024, // 200kb
+            timeoutSeconds: 5,
+            onFlush: async (batch) => {
+                console.log(`Flushing batch of length ${batch.length}`)
+                for (const event of batch) {
+                    if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
+                        continue
+                    }
 
-    global.buffer = createBuffer({
-        limit: (1 / 5) * 1024 * 1024, // 200kb
-        timeoutSeconds: 5,
-        onFlush: async (batch) => {
-            console.log(`Flushing batch of length ${batch.length}`)
-            for (const event of batch) {
-                if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
-                    continue
-                }
-
-                try {
-                    await exportToCustomerio(event, global.customerioAuthHeader, config)
-                } catch (error) {
-                    console.error("Failed to export to Customer.io with error", error.message)
+                    try {
+                        await exportToCustomerio(event, global.customerioAuthHeader, config)
+                    } catch (error) {
+                        console.error("Failed to export to Customer.io with error", error.message)
+                    }
                 }
             }
-        }
-    })
+        })
+    } catch (error) {
+        console.error(error)
+    }
 }
 
 export async function onEvent(event, { config, global }) {
