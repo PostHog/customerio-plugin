@@ -48,7 +48,7 @@ export async function setupPlugin({ config, global }) {
                 }
             }
         })
-    catch (error) {
+    } catch (error) {
         console.error(error)
     }
 }
