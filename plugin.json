@@ -30,6 +30,12 @@
             "hint": "Comma separated list of events to include if specified"
         },
         {
+            "key": "eventsToExclude",
+            "name": "List of events to be excluded from sending to Customer.io",
+            "type": "string",
+            "hint": "Comma separated list of events to exclude if specified"
+        },
+        {
             "key": "sendEventsFromAnonymousUsers",
             "name": "Send events from anonymous users to Customer.io",
             "type": "choice",

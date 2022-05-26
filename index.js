@@ -29,6 +29,7 @@ export async function setupPlugin({ config, global }) {
     
     try {
         const eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
+        const excludedEventNames = config.eventsToExclude ? config.eventsToExclude.split(',').filter(Boolean) : [];
 
         global.buffer = createBuffer({
             limit: (1 / 5) * 1024 * 1024, // 200kb
@@ -38,6 +39,10 @@ export async function setupPlugin({ config, global }) {
                 for (const event of batch) {
                     if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
                         continue
+                    }
+
+                    if (excludedEventNames.length > 0 && excludedEventNames.includes(event.event)) {
+                        continue;
                     }
 
                     try {
