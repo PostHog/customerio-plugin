@@ -10,6 +10,8 @@ const EVENTS_CONFIG_MAP = {
     'Only send events from users that have been identified': eventsConfig.SEND_IDENTIFIED
 }
 
+class RetryError extends Error {}
+
 export async function setupPlugin({ config, global }) {
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
@@ -47,6 +49,10 @@ export async function setupPlugin({ config, global }) {
 }
 
 export async function exportEvents(events, meta) {
+    if (!global.eventNames) {
+        // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
+        throw new RetryError('setupPlugin failed. Cannot run exportEvents.')
+    }
     console.log(`Flushing batch of length ${events.length}`)
     const { global, config } = meta
     for (const event of events) {
