@@ -30,10 +30,12 @@ export async function setupPlugin({ config, global }) {
     )
     
     if (statusUnauthorized(authResponse)){
+        console.error(String(authResponse))
         throw new Error('Unable to connect to Customer.io')
     }
 
     if (!statusOk(authResponse)) {
+        console.error(String(authResponse))
         throw new RetryError('Service is down, retry later')
     }
 
@@ -59,6 +61,7 @@ export async function setupPlugin({ config, global }) {
     })
 
     global.eventsConfig = EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers]
+
 }
 
 export async function onEvent(event, { config, global }) {
@@ -73,7 +76,7 @@ export async function onEvent(event, { config, global }) {
 }
 
 async function exportToCustomerio(payload, authHeader, customerioHost, { cache, config, global }) {
-    const { event, distinct_id } = payload
+    const { event, distinct_id, properties } = payload
 
     const properties = { ...payload.properties, ...(payload.properties.$set || {})}
 
