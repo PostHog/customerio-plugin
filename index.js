@@ -26,14 +26,14 @@ export async function setupPlugin({ config, global }) {
         global.customerioAuthHeader
     )
 
-    if (statusUnauthorized(authResponse)) {
-        console.error(String(authResponse))
-        throw new Error('Unable to connect to Customer.io')
+    if (!authResponse || statusUnauthorized(authResponse)) {
+        console.error(`Unable to connect to Customer.io - Response = ${String(authResponse)}`)
+        return
     }
 
     if (!statusOk(authResponse)) {
-        console.error(String(authResponse))
-        throw new RetryError('Service is down, retry later')
+        console.error(`Service is down, retry later - Response = ${String(authResponse)}`)
+        return
     }
 
     global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
@@ -103,7 +103,8 @@ async function createCustomerioUserIfNotExists(url, email, properties, headers) 
     try {
         const response = await fetchWithRetry(url, { headers, body }, 'PUT')
         if (!statusOk(response.status)) {
-            throw new Error(`Unable to create user with email ${email}. Status: ${response.status}.`)
+            console.error(`Unable to create user with email ${email}. Status: ${response.status}.`)
+            return false
         }
         return true
     } catch (error) {
@@ -119,7 +120,8 @@ async function fetchWithRetry(url, options = {}, method = 'GET', isRetry = false
         return res
     } catch {
         if (isRetry) {
-            throw new Error(`${method} request to ${url} failed.`)
+            console.error(`${method} request to ${url} failed.`)
+            return
         }
         const res = await fetchWithRetry(url, options, (method = method), (isRetry = true))
         return res
