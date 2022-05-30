@@ -1,6 +1,5 @@
 {
-    "name": "Customer.io",
-    "url": "https://github.com/PostHog/customerio-plugin",
+    "name": "customer.io",
     "description": "Send event data and emails into Customer.io.",
     "posthogVersion": ">= 1.25.0",
     "main": "index.js",
@@ -40,6 +39,13 @@
                 "Only send events from users that have been identified",
                 "Only send events from users with emails"
             ]
+        },
+        {
+            "key": "host",
+            "name": "API host to use",
+            "type": "choice",
+            "default": "track.customer.io",
+            "choices": ["track.customer.io", "track-eu.customer.io"]
         }
     ]
 }

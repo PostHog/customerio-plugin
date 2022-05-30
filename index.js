@@ -1,7 +1,16 @@
-import { createBuffer } from '@posthog/plugin-contrib'
+const eventsConfig = {
+    SEND_ALL: '1',
+    SEND_EMAILS: '2',
+    SEND_IDENTIFIED: '3'
+}
+
+const EVENTS_CONFIG_MAP = {
+    'Send all events': eventsConfig.SEND_ALL,
+    'Only send events from users with emails': eventsConfig.SEND_EMAILS,
+    'Only send events from users that have been identified': eventsConfig.SEND_IDENTIFIED
+}
 
 export async function setupPlugin({ config, global }) {
-    
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
@@ -16,8 +25,8 @@ export async function setupPlugin({ config, global }) {
         'https://beta-api.customer.io/v1/api/info/ip_addresses',
         global.customerioAuthHeader
     )
-    
-    if (statusUnauthorized(authResponse)){
+
+    if (statusUnauthorized(authResponse)) {
         console.error(String(authResponse))
         throw new Error('Unable to connect to Customer.io')
     }
@@ -26,76 +35,82 @@ export async function setupPlugin({ config, global }) {
         console.error(String(authResponse))
         throw new RetryError('Service is down, retry later')
     }
-    
+
+    global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
+
+    global.eventsConfig = EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers]
+}
+
+export async function exportEvents(events, meta) {
+    console.log(`Flushing batch of length ${events.length}`)
+    const { global, config } = meta
+    for (const event of events) {
+        if (
+            (global.eventNames.length > 0 && !global.eventNames.includes(event.event)) ||
+            (global.eventsConfig === eventsConfig.SEND_IDENTIFIED && isAnonymousUser(event))
+        ) {
+            continue
+        }
+
+        try {
+            await exportToCustomerio(event, global.customerioAuthHeader, config.host, meta)
+        } catch (error) {
+            console.error('Failed to export to Customer.io')
+        }
+    }
+}
+
+async function exportToCustomerio(payload, authHeader, customerioHost, { cache, global }) {
+    const { event, distinct_id } = payload
+
+    const properties = { ...payload.properties, ...(payload.properties.$set || {}) }
+
+    const baseCustomersURL = `https://${customerioHost}/api/v1/customers/${distinct_id}`
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', ...authHeader.headers }
+
+    let userExists = await cache.get(distinct_id, false)
+    const isIdentifyEvent = event === '$identify'
+    const email = isIdentifyEvent && getEmailFromEvent(payload)
+
+    const shouldCreateUserForConfig =
+        global.eventsConfig === eventsConfig.SEND_ALL ||
+        (global.eventsConfig === eventsConfig.SEND_EMAILS && email) ||
+        (global.eventsConfig === eventsConfig.SEND_IDENTIFIED && isIdentifyEvent)
+
+    if (!userExists && shouldCreateUserForConfig) {
+        userExists = await createCustomerioUserIfNotExists(baseCustomersURL, email, properties, headers)
+        if (userExists) {
+            await cache.set(distinct_id, true, 60 * 5) // 5 minutes
+        }
+    }
+
+    if (userExists) {
+        await sendEventToCustomerIo(`${baseCustomersURL}/events`, event, properties, headers)
+    }
+}
+
+async function sendEventToCustomerIo(url, event, properties, headers) {
+    const body = JSON.stringify({ name: event, data: properties })
+    const response = await fetchWithRetry(`${url}/events`, { headers, body }, 'POST')
+    if (!statusOk(response)) {
+        console.error(`Unable to send event ${event} to Customer.io`)
+    }
+}
+
+// Customer.io will just update the user and return `ok` if it already exists
+async function createCustomerioUserIfNotExists(url, email, properties, headers) {
+    const body = JSON.stringify({ email, ...properties })
     try {
-        const eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
-
-        global.buffer = createBuffer({
-            limit: (1 / 5) * 1024 * 1024, // 200kb
-            timeoutSeconds: 5,
-            onFlush: async (batch) => {
-                console.log(`Flushing batch of length ${batch.length}`)
-                for (const event of batch) {
-                    if (eventNames.length > 0 && !eventNames.includes(event.event)) { 
-                        continue
-                    }
-
-                    try {
-                        await exportToCustomerio(event, global.customerioAuthHeader, config)
-                    } catch (error) {
-                        console.error("Failed to export to Customer.io with error", error.message)
-                    }
-                }
-            }
-        })
+        const response = await fetchWithRetry(url, { headers, body }, 'PUT')
+        if (!statusOk(response.status)) {
+            throw new Error(`Unable to create user with email ${email}. Status: ${response.status}.`)
+        }
+        return true
     } catch (error) {
         console.error(error)
     }
-}
 
-export async function onEvent(event, { config, global }) {
-    if (
-        config.sendEventsFromAnonymousUsers === "Only send events from users that have been identified" &&
-        isAnonymousUser(event)
-    ) {
-        return
-    }
-
-    console.log('onEvent', event.event, event.distinct_id)
-    global.buffer.add(event)
-}
-
-async function exportToCustomerio(payload, authHeader, config) {
-    const { event, distinct_id, properties } = payload
-
-    const baseCustomersURL = `https://track.customer.io/api/v1/customers/${distinct_id}`
-    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', ...authHeader.headers }
-
-    const isIdentifyEvent = event === '$identify'
-    const email = isIdentifyEvent && getEmailFromEvent(payload)
-    
-
-    let response
-
-    if (isIdentifyEvent) {
-        if (!email) {
-            console.log(`Email not found in user ${distinct_id}. Unable to create customer in Customer.io`)
-            return
-        }
-
-        const body = JSON.stringify({ email, ...properties })
-        response = await fetchWithRetry(baseCustomersURL, { headers, body }, 'PUT')
-    } else {
-        if (!email && config.sendEventsFromAnonymousUsers === 'Only send events from users with emails') {
-            return
-        }
-        const body = JSON.stringify({ name: event, data: properties })
-        response = await fetchWithRetry(`${baseCustomersURL}/events`, { headers, body }, 'POST')
-    }
-
-    if (!statusOk(response)) {
-        console.error(isIdentifyEvent ? `Unable to identify user ${email} in Customer.io` : `Unable to send event ${event} to Customer.io`)
-    }
+    return false
 }
 
 async function fetchWithRetry(url, options = {}, method = 'GET', isRetry = false) {
@@ -112,10 +127,10 @@ async function fetchWithRetry(url, options = {}, method = 'GET', isRetry = false
 }
 
 function statusOk(res) {
-    return Math.floor(res.status / 100) === 2
+    return String(res.status)[0] === '2'
 }
 
-function statusUnauthorized(res){
+function statusUnauthorized(res) {
     return res.status == 401
 }
 
@@ -135,7 +150,7 @@ function isAnonymousUser({ distinct_id, properties }) {
 function getEmailFromEvent(event) {
     if (isEmail(event.distinct_id)) {
         return event.distinct_id
-    } 
+    }
 
     const getEmailFromKey = (key) => {
         const object = event[key]
@@ -145,6 +160,6 @@ function getEmailFromEvent(event) {
         const email = object['email']
         return isEmail(email) && email
     }
-    
+
     return getEmailFromKey('$set') || getEmailFromKey('$set_once') || getEmailFromKey('properties')
 }
