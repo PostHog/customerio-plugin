@@ -51,11 +51,8 @@ export async function setupPlugin({ config, global }) {
 export async function exportEvents(events, meta) {
     const { global, config } = meta
 
-    // make sure setupPlugin ran
-    try {
-        // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
-        global.foo = 'bar'
-    } catch {
+    // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
+    if (!global.eventNames) {
         throw new RetryError('setupPlugin failed. Cannot run exportEvents.')
     }
 
