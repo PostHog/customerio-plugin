@@ -27,12 +27,17 @@ export async function setupPlugin({ config, global }) {
     )
 
     if (!authResponse || statusUnauthorized(authResponse)) {
-        console.error(`Unable to connect to Customer.io - Response = ${String(authResponse)}`)
+        let response = authResponse
+        if (!response) {
+            response = await authResponse.json()
+        }
+        console.error(`Unable to connect to Customer.io - Response = ${response}`)
         return
     }
 
     if (!statusOk(authResponse)) {
-        console.error(`Service is down, retry later - Response = ${String(authResponse)}`)
+        let response = await authResponse.json()
+        console.error(`Service is down, retry later - Response = ${response}`)
         return
     }
 
