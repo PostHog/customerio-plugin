@@ -115,7 +115,7 @@ async function createCustomerioUserIfNotExists(url, email, properties, headers) 
     const body = JSON.stringify({ email, ...properties })
     try {
         const response = await fetchWithRetry(url, { headers, body }, 'PUT')
-        if (!statusOk(response.status)) {
+        if (!statusOk(response)) {
             console.error(`Unable to create user with email ${email}. Status: ${response.status}.`)
             return false
         }
