@@ -49,6 +49,8 @@ export async function setupPlugin({ config, global }) {
 }
 
 export async function exportEvents(events, meta) {
+    const { global, config } = meta
+
     // make sure setupPlugin ran
     try {
         // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
@@ -58,7 +60,6 @@ export async function exportEvents(events, meta) {
     }
 
     console.log(`Flushing batch of length ${events.length}`)
-    const { global, config } = meta
     for (const event of events) {
         if (
             (global.eventNames.length > 0 && !global.eventNames.includes(event.event)) ||
