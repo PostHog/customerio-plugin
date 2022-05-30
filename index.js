@@ -30,7 +30,7 @@ export async function setupPlugin({ config, global }) {
 
     if (!authResponse || statusUnauthorized(authResponse)) {
         let response = authResponse
-        if (!response) {
+        if (response) {
             response = await authResponse.json()
         }
         console.error(`Unable to connect to Customer.io - Response = ${response}`)
@@ -49,10 +49,14 @@ export async function setupPlugin({ config, global }) {
 }
 
 export async function exportEvents(events, meta) {
-    if (!global.eventNames) {
+    // make sure setupPlugin ran
+    try {
         // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
+        global.foo = 'bar'
+    } catch {
         throw new RetryError('setupPlugin failed. Cannot run exportEvents.')
     }
+
     console.log(`Flushing batch of length ${events.length}`)
     const { global, config } = meta
     for (const event of events) {
