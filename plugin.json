@@ -1,12 +1,12 @@
 {
-    "name": "customer.io",
+    "name": "Customer.io",
     "description": "Send event data and emails into Customer.io.",
     "posthogVersion": ">= 1.25.0",
     "main": "index.js",
     "config": [
         {
             "key": "customerioSiteId",
-            "hint": "Provided during the Customer.io setup",
+            "hint": "Provided during Customer.io setup.",
             "name": "Customer.io Site ID",
             "type": "string",
             "default": "",
@@ -15,18 +15,20 @@
         },
         {
             "key": "customerioToken",
-            "hint": "Provided during the Customer.io setup",
-            "name": "Customer.io Token",
+            "hint": "Provided during Customer.io setup.",
+            "name": "Customer.io API Key",
             "type": "string",
             "default": "",
             "required": true,
             "secret": true
         },
         {
-            "key": "eventsToSend",
-            "name": "PostHog Event Allowlist",
-            "type": "string",
-            "hint": "If this is set, only the specified events (comma-separated) will be sent to Customer.io"
+            "key": "host",
+            "name": "Tracking Endpoint",
+            "hint": "Use the EU variant if your Customer.io account is based in the EU region.",
+            "type": "choice",
+            "default": "track.customer.io",
+            "choices": ["track.customer.io", "track-eu.customer.io"]
         },
         {
             "key": "sendEventsFromAnonymousUsers",
@@ -41,12 +43,10 @@
             ]
         },
         {
-            "key": "host",
-            "name": "Tracking Endpoint",
-            "hint": "Use the EU variant if your Customer.io account is based in the EU region.",
-            "type": "choice",
-            "default": "track.customer.io",
-            "choices": ["track.customer.io", "track-eu.customer.io"]
+            "key": "eventsToSend",
+            "name": "PostHog Event Allowlist",
+            "type": "string",
+            "hint": "If this is set, only the specified events (comma-separated) will be sent to Customer.io."
         }
     ]
 }

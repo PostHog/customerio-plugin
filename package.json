@@ -7,7 +7,7 @@
         "type": "git",
         "url": "git+https://github.com/PostHog/customerio-plugin.git"
     },
-    "author": "Yakko Majuri",
+    "author": "PostHog Inc.",
     "license": "MIT",
     "bugs": {
         "url": "https://github.com/PostHog/customerio-plugin/issues"
