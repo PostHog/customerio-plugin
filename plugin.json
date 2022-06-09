@@ -24,13 +24,13 @@
         },
         {
             "key": "eventsToSend",
-            "name": "List of events to send to Customer.io. If not specified all events will be sent",
+            "name": "PostHog Event Allowlist",
             "type": "string",
-            "hint": "Comma separated list of events to include if specified"
+            "hint": "If this is set, only the specified events (comma-separated) will be sent to Customer.io"
         },
         {
             "key": "sendEventsFromAnonymousUsers",
-            "name": "Send events from anonymous users to Customer.io",
+            "name": "Filtering of Anonymous Users",
             "type": "choice",
             "hint": "Customer.io pricing is based on the number of customers. This is an option to only send events from users that have been identified. Take into consideration that merging after identification won't work (as those previously anonymous events won't be there).",
             "default": "Send all events",
@@ -42,7 +42,8 @@
         },
         {
             "key": "host",
-            "name": "API host to use",
+            "name": "Tracking Endpoint",
+            "hint": "Use the EU variant if your Customer.io account is based in the EU region.",
             "type": "choice",
             "default": "track.customer.io",
             "choices": ["track.customer.io", "track-eu.customer.io"]
