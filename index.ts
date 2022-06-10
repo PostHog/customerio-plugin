@@ -133,7 +133,7 @@ async function sendEventToCustomerIo(
 ) {
     const body = JSON.stringify({ name: event, data: properties })
     const response = await fetchWithRetry(`${url}/events`, { headers, body }, 'POST')
-    if (!statusOk(response)) {
+    if (!response || !statusOk(response)) {
         console.error(`Unable to send event ${event} to Customer.io`)
     }
 }
@@ -148,7 +148,7 @@ async function createCustomerioUserIfNotExists(
     const body = JSON.stringify({ email, ...properties })
     try {
         const response = await fetchWithRetry(url, { headers, body }, 'PUT')
-        if (!statusOk(response)) {
+        if (!response || !statusOk(response)) {
             console.error(`Unable to create user with email ${email}. Status: ${response?.status}.`)
             return false
         }
@@ -174,8 +174,8 @@ async function fetchWithRetry(url: string, options = {}, method = 'GET', isRetry
     }
 }
 
-function statusOk(res: Response | null) {
-    return res?.status.toString().charAt(0) === '2'
+function statusOk(res: Response) {
+    return res.status.toString().charAt(0) === '2'
 }
 
 function statusUnauthorized(res: Response) {
