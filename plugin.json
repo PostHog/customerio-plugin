@@ -2,7 +2,7 @@
     "name": "Customer.io",
     "description": "Send event data and emails into Customer.io.",
     "posthogVersion": ">= 1.25.0",
-    "main": "index.js",
+    "main": "index.ts",
     "config": [
         {
             "key": "customerioSiteId",
