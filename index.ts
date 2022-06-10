@@ -1,7 +1,7 @@
-import { RetryError } from '@posthog/plugin-scaffold'
+import { CacheExtension, RetryError } from '@posthog/plugin-scaffold'
 import type { PluginInput, Meta, Plugin, PluginEvent } from '@posthog/plugin-scaffold'
-import fetch, { HeadersInit, RequestInit } from 'node-fetch'
-import type { Response } from 'node-fetch'
+import fetch from 'node-fetch'
+import { Response } from 'node-fetch'
 
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
@@ -36,161 +36,115 @@ const EVENTS_CONFIG_MAP = {
     'Only send events from users that have been identified': EventsConfig.SEND_IDENTIFIED
 }
 
+const fetchWithErrorHandling: typeof fetch = async (url, init) => {
+    let response: Response
+    try {
+        response = await fetch(url, init)
+    } catch (e) {
+        throw new RetryError(`Cannot reach the Customer.io API. ${e}`)
+    }
+    const responseStatusClass = Math.floor(response.status / 100)
+    if (response.status === 401 || response.status === 403) {
+        const responseData = await response.json()
+        throw new Error(
+            `Customer.io Site ID or API Key invalid! Response ${response.status}: ${JSON.stringify(responseData)}`
+        )
+    }
+    if (response.status === 408 || response.status === 429 || responseStatusClass === 5) {
+        const responseData = await response.json()
+        throw new RetryError(
+            `Received a potentially intermittent error from the Customer.io API. Response ${
+                response.status
+            }: ${JSON.stringify(responseData)}`
+        )
+    }
+    if (responseStatusClass !== 2) {
+        const responseData = await response.json()
+        throw new Error(
+            `Received an unexpected error from the Customer.io API. Response ${response.status}: ${JSON.stringify(
+                responseData
+            )}`
+        )
+    }
+    return response
+}
+
 export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async ({ config, global }) => {
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
     global.authorizationHeader = `Basic ${customerioBase64AuthToken}`
-
-    const authResponse = await fetchWithRetry('https://api.customer.io/v1/api/info/ip_addresses', {
-        headers: global.authorizationHeader
-    })
-
-    if (!authResponse || statusUnauthorized(authResponse)) {
-        const authResponseJson = authResponse ? await authResponse.json() : null
-        console.error(`Unable to connect to Customer.io - Response = ${authResponseJson || authResponse}`)
-        return
-    }
-
-    if (!statusOk(authResponse)) {
-        let response = await authResponse.json()
-        console.error(`Service is down, retry later - Response = ${response}`)
-        return
-    }
-
     global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
-
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
+
+    await fetchWithErrorHandling('https://api.customer.io/v1/api/info/ip_addresses', {
+        headers: { Authorization: global.authorizationHeader }
+    })
+    console.log('Successfully authenticated with Customer.io.')
 }
 
 export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async (events, meta) => {
     const { global, config } = meta
-
     // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
     if (!global.eventNames) {
-        throw new RetryError('setupPlugin failed. Cannot run exportEvents.')
+        throw new RetryError('Cannot run exportEvents because setupPlugin failed!')
     }
-
-    console.log(`Flushing batch of length ${events.length}`)
-    for (const event of events) {
-        if (
-            (global.eventNames.length > 0 && !global.eventNames.includes(event.event)) ||
-            (global.eventsConfig === EventsConfig.SEND_IDENTIFIED && isAnonymousUser(event))
-        ) {
-            continue
-        }
-
-        try {
-            await exportToCustomerio(event, global.authorizationHeader, config.host || DEFAULT_HOST, meta)
-        } catch (error) {
-            console.error('Failed to export to Customer.io')
-        }
+    const batchInfo = `Batch of ${events.length} event${events.length !== 1 ? 's' : ''} received.`
+    if (events.length === 0) {
+        console.log(`${batchInfo} Skipping.`)
+        return
     }
+    const filteredEvents = events.filter(
+        (event) =>
+            (global.eventNames.length === 0 || global.eventNames.includes(event.event)) &&
+            (global.eventsConfig !== EventsConfig.SEND_IDENTIFIED || !isAnonymousUser(event))
+    )
+    if (filteredEvents.length === 0) {
+        console.log(`${batchInfo} None passed filtering. Skipping.`)
+        return
+    } else {
+        console.log(
+            `${batchInfo} ${
+                filteredEvents.length === events.length ? 'All' : filteredEvents.length
+            } passed filtering. Proceeding...`
+        )
+    }
+    await Promise.all(
+        filteredEvents.map(
+            async (event) =>
+                await exportSingleEvent(event, global.authorizationHeader, config.host || DEFAULT_HOST, meta.cache)
+        )
+    )
+    console.log(`Sent ${filteredEvents.length} event${filteredEvents.length !== 1 ? 's' : ''} to Customer.io.`)
 }
 
-async function exportToCustomerio(
-    payload: PluginEvent,
-    authorizationHeader: string,
-    customerioHost: string,
-    { cache, global }: Meta<CustomerIoPluginInput>
-) {
-    const { event, distinct_id } = payload
+async function exportSingleEvent(event: PluginEvent, authorizationHeader: string, host: string, cache: CacheExtension) {
+    const combinedSetObject = { ...(event.$set_once || {}), ...(event.$set || {}) }
+    const flattenedEventProperties = { ...(event.properties || {}), ...combinedSetObject }
+    const email = getEmailFromEvent(event)
 
-    const properties = { ...payload.properties, ...(payload.properties?.$set || {}) }
+    const userExists = await cache.get(event.distinct_id, false)
+    // See https://www.customer.io/docs/api/#operation/identify
+    await fetchWithErrorHandling(`https://${host}/api/v1/customers/${event.distinct_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: authorizationHeader },
+        body: JSON.stringify({ _update: userExists, email, identifier: event.distinct_id, ...combinedSetObject })
+    })
+    await cache.set(event.distinct_id, true)
 
-    const baseCustomersURL = `https://${customerioHost}/api/v1/customers/${distinct_id}`
-    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: authorizationHeader }
-
-    let userExists = await cache.get(distinct_id, false)
-    const isIdentifyEvent = event === '$identify'
-    const email = isIdentifyEvent ? getEmailFromEvent(payload) : null
-
-    const shouldCreateUserForConfig =
-        global.eventsConfig === EventsConfig.SEND_ALL ||
-        (global.eventsConfig === EventsConfig.SEND_EMAILS && email) ||
-        (global.eventsConfig === EventsConfig.SEND_IDENTIFIED && isIdentifyEvent)
-
-    if (!userExists && shouldCreateUserForConfig) {
-        userExists = await createCustomerioUserIfNotExists(baseCustomersURL, email, properties, headers)
-        if (userExists) {
-            await cache.set(distinct_id, true, 60 * 5) // 5 minutes
-        }
-    }
-
-    if (userExists) {
-        await sendEventToCustomerIo(`${baseCustomersURL}/events`, event, properties, headers)
-    }
-}
-
-async function sendEventToCustomerIo(
-    url: string,
-    event: string,
-    properties: Record<string, any>,
-    headers: Record<string, any>
-) {
-    const body = JSON.stringify({ name: event, data: properties })
-    const response = await fetchWithRetry(`${url}/events`, { headers, body }, 'POST')
-    if (!response || !statusOk(response)) {
-        console.error(`Unable to send event ${event} to Customer.io`)
-    }
-}
-
-// Customer.io will just update the user and return `ok` if it already exists
-async function createCustomerioUserIfNotExists(
-    url: string,
-    email: string | null,
-    properties: Record<string, any>,
-    headers: Record<string, any>
-) {
-    const body = JSON.stringify({ email, ...properties })
-    try {
-        const response = await fetchWithRetry(url, { headers, body }, 'PUT')
-        if (!response || !statusOk(response)) {
-            console.error(`Unable to create user with email ${email}. Status: ${response?.status}.`)
-            return false
-        }
-        return true
-    } catch (error) {
-        console.error(error)
-    }
-
-    return false
-}
-
-async function fetchWithRetry(
-    url: string,
-    options: RequestInit = {},
-    method: RequestInit['method'] = 'GET',
-    isRetry = false
-): Promise<Response | null> {
-    try {
-        const res = await fetch(url, { method: method, ...options })
-        return res
-    } catch {
-        if (isRetry) {
-            console.error(`${method} request to ${url} failed.`)
-            return null
-        }
-        const res = await fetchWithRetry(url, options, (method = method), (isRetry = true))
-        return res
-    }
-}
-
-function statusOk(res: Response) {
-    return res.status.toString().charAt(0) === '2'
-}
-
-function statusUnauthorized(res: Response) {
-    return res.status == 401
-}
-
-function isEmail(email: string): boolean {
-    if (typeof email !== 'string') {
-        return false
-    }
-    const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
-    return re.test(email.toLowerCase())
+    const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
+    const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
+    await fetchWithErrorHandling(`https://${host}/api/v1/customers/${event.distinct_id}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: authorizationHeader },
+        body: JSON.stringify({
+            name: event.event,
+            type: eventType,
+            timestamp: eventTimestamp,
+            data: flattenedEventProperties
+        })
+    })
 }
 
 function isAnonymousUser({ distinct_id, properties }: PluginEvent) {
@@ -201,22 +155,26 @@ function isAnonymousUser({ distinct_id, properties }: PluginEvent) {
     return re.test(String(distinct_id))
 }
 
-function getEmailFromKey(event: PluginEvent, key: '$set' | '$set_once' | 'properties'): string | null {
-    const object = event[key]
-    if (!object) {
+function isEmail(email: string): boolean {
+    if (typeof email !== 'string') {
+        return false
+    }
+    const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+    return re.test(email.toLowerCase())
+}
+
+function getEmailFromSetObject(event: PluginEvent, key: '$set' | '$set_once' | 'properties'): string | null {
+    const source = event[key]
+    if (typeof source !== 'object' || !source['email']) {
         return null
     }
-    if (!Object.keys(object).includes('email')) {
-        return null
-    }
-    const email = object['email']
-    return isEmail(email) ? email : null
+    const emailCandidate = source['email']
+    return isEmail(emailCandidate) ? emailCandidate : null
 }
 
 function getEmailFromEvent(event: PluginEvent): string | null {
     if (isEmail(event.distinct_id)) {
         return event.distinct_id
     }
-
-    return getEmailFromKey(event, '$set') || getEmailFromKey(event, '$set_once') || getEmailFromKey(event, 'properties')
+    return getEmailFromSetObject(event, '$set') || getEmailFromSetObject(event, '$set_once')
 }
