@@ -1,6 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import type { PluginInput, Meta, Plugin, PluginEvent } from '@posthog/plugin-scaffold'
-import fetch from 'node-fetch'
+import fetch, { HeadersInit, RequestInit } from 'node-fetch'
 import type { Response } from 'node-fetch'
 
 const DEFAULT_HOST = 'track.customer.io'
@@ -40,13 +40,11 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
-
     global.authorizationHeader = `Basic ${customerioBase64AuthToken}`
 
-    const authResponse = await fetchWithRetry(
-        'https://beta-api.customer.io/v1/api/info/ip_addresses',
-        global.authorizationHeader
-    )
+    const authResponse = await fetchWithRetry('https://api.customer.io/v1/api/info/ip_addresses', {
+        headers: global.authorizationHeader
+    })
 
     if (!authResponse || statusUnauthorized(authResponse)) {
         const authResponseJson = authResponse ? await authResponse.json() : null
@@ -160,7 +158,12 @@ async function createCustomerioUserIfNotExists(
     return false
 }
 
-async function fetchWithRetry(url: string, options = {}, method = 'GET', isRetry = false): Promise<Response | null> {
+async function fetchWithRetry(
+    url: string,
+    options: RequestInit = {},
+    method: RequestInit['method'] = 'GET',
+    isRetry = false
+): Promise<Response | null> {
     try {
         const res = await fetch(url, { method: method, ...options })
         return res
