@@ -36,10 +36,22 @@ const EVENTS_CONFIG_MAP = {
     'Only send events from users that have been identified': EventsConfig.SEND_IDENTIFIED
 }
 
-const fetchWithErrorHandling: typeof fetch = async (url, init) => {
+async function callCustomerIoApi(
+    method: NonNullable<RequestInit['method']>,
+    host: string,
+    path: string,
+    authorization: string,
+    body?: any
+) {
+    const headers: Record<string, any> = { 'User-Agent': 'PostHog Customer.io App', Authorization: authorization }
+    let bodySerialized: string | undefined
+    if (body != null) {
+        headers['Content-Type'] = 'application/json'
+        bodySerialized = JSON.stringify(body)
+    }
     let response: Response
     try {
-        response = await fetch(url, init)
+        response = await fetch(`https://${host}${path}`, { method, headers, body: bodySerialized })
     } catch (e) {
         throw new RetryError(`Cannot reach the Customer.io API. ${e}`)
     }
@@ -78,9 +90,8 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
 
-    await fetchWithErrorHandling('https://api.customer.io/v1/api/info/ip_addresses', {
-        headers: { Authorization: global.authorizationHeader }
-    })
+    // See https://www.customer.io/docs/api/#operation/getCioAllowlist
+    await callCustomerIoApi('GET', 'api.customer.io', '/v1/api/info/ip_addresses', global.authorizationHeader)
     console.log('Successfully authenticated with Customer.io.')
 }
 
@@ -126,24 +137,22 @@ async function exportSingleEvent(event: PluginEvent, authorizationHeader: string
 
     const userExists = await cache.get(event.distinct_id, false)
     // See https://www.customer.io/docs/api/#operation/identify
-    await fetchWithErrorHandling(`https://${host}/api/v1/customers/${event.distinct_id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: authorizationHeader },
-        body: JSON.stringify({ _update: userExists, email, identifier: event.distinct_id, ...combinedSetObject })
+    await callCustomerIoApi('PUT', host, `/api/v1/customers/${event.distinct_id}`, authorizationHeader, {
+        _update: userExists,
+        email,
+        identifier: event.distinct_id,
+        ...combinedSetObject
     })
     await cache.set(event.distinct_id, true)
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
-    await fetchWithErrorHandling(`https://${host}/api/v1/customers/${event.distinct_id}/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: authorizationHeader },
-        body: JSON.stringify({
-            name: event.event,
-            type: eventType,
-            timestamp: eventTimestamp,
-            data: flattenedEventProperties
-        })
+    // See https://www.customer.io/docs/api/#operation/track
+    await callCustomerIoApi('POST', host, `/api/v1/customers/${event.distinct_id}/events`, authorizationHeader, {
+        name: event.event,
+        type: eventType,
+        timestamp: eventTimestamp,
+        data: flattenedEventProperties
     })
 }
 
