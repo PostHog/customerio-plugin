@@ -177,7 +177,7 @@ async function syncCustomerMetadata(event: PluginEvent, storage: StorageExtensio
     }
 }
 
-async function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig): Promise<boolean> {
+function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig): boolean {
     switch (eventsConfig) {
         case EventsConfig.SEND_ALL:
             return true
