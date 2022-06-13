@@ -1,5 +1,5 @@
-import { CacheExtension, RetryError } from '@posthog/plugin-scaffold'
-import type { PluginInput, Meta, Plugin, PluginEvent } from '@posthog/plugin-scaffold'
+import { RetryError, StorageExtension } from '@posthog/plugin-scaffold'
+import type { PluginInput, Plugin, PluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 import { Response } from 'node-fetch'
 
@@ -34,6 +34,12 @@ const EVENTS_CONFIG_MAP = {
     'Send all events': EventsConfig.SEND_ALL,
     'Only send events from users with emails': EventsConfig.SEND_EMAILS,
     'Only send events from users that have been identified': EventsConfig.SEND_IDENTIFIED
+}
+
+interface Customer {
+    status: Set<'seen' | 'identified' | 'with_email'>
+    existsAlready: boolean
+    email: string | null
 }
 
 async function callCustomerIoApi(
@@ -106,62 +112,110 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         console.log(`${batchInfo} Skipping.`)
         return
     }
-    const filteredEvents = events.filter(
-        (event) =>
-            (global.eventNames.length === 0 || global.eventNames.includes(event.event)) &&
-            (global.eventsConfig !== EventsConfig.SEND_IDENTIFIED || !isAnonymousUser(event))
+    const nameFilteredEvents = events.filter(
+        (event) => global.eventNames.length === 0 || global.eventNames.includes(event.event)
     )
-    if (filteredEvents.length === 0) {
+    const nameFilteredEventsWithCustomers: [PluginEvent, Customer][] = await Promise.all(
+        nameFilteredEvents.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
+    )
+    const fullyFilteredEventsWithCustomers = nameFilteredEventsWithCustomers.filter(([, customer]) =>
+        shouldCustomerBeTracked(customer, global.eventsConfig)
+    )
+
+    const finalEventCount = fullyFilteredEventsWithCustomers.length
+    if (finalEventCount === 0) {
         console.log(`${batchInfo} None passed filtering. Skipping.`)
         return
     } else {
         console.log(
             `${batchInfo} ${
-                filteredEvents.length === events.length ? 'All' : filteredEvents.length
+                finalEventCount === events.length ? 'All' : finalEventCount
             } passed filtering. Proceeding...`
         )
     }
+
+    // Tracking events in two stages, to improve consistency of customer creation
+    const customerCreateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => !customer.existsAlready)
+    const customerUpdateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => customer.existsAlready)
     await Promise.all(
-        filteredEvents.map(
-            async (event) =>
-                await exportSingleEvent(event, global.authorizationHeader, config.host || DEFAULT_HOST, meta.cache)
+        customerCreateEvents.map(
+            async ([event, customer]) =>
+                await exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST)
         )
     )
-    console.log(`Sent ${filteredEvents.length} event${filteredEvents.length !== 1 ? 's' : ''} to Customer.io.`)
+    await Promise.all(
+        customerUpdateEvents.map(
+            async ([event, customer]) =>
+                await exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST)
+        )
+    )
+
+    console.log(`Sent ${finalEventCount} event${finalEventCount !== 1 ? 's' : ''} to Customer.io.`)
 }
 
-async function exportSingleEvent(event: PluginEvent, authorizationHeader: string, host: string, cache: CacheExtension) {
-    const combinedSetObject = { ...(event.$set_once || {}), ...(event.$set || {}) }
-    const flattenedEventProperties = { ...(event.properties || {}), ...combinedSetObject }
+async function syncCustomerMetadata(event: PluginEvent, storage: StorageExtension): Promise<Customer> {
+    const customerStatusKey = `customer-status/${event.distinct_id}`
+    const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
+    const customerStatus = new Set(customerStatusArray) as Customer['status']
+    const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
 
-    const userExists = await cache.get(event.distinct_id, false)
+    // Update customer status
+    customerStatus.add('seen')
+    if (event.event === '$identify') {
+        customerStatus.add('identified')
+    }
+    if (email) {
+        customerStatus.add('with_email')
+    }
+    await storage.set(customerStatusKey, Array.from(customerStatus))
+
+    return {
+        status: customerStatus,
+        existsAlready: customerExistsAlready,
+        email
+    }
+}
+
+async function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig): Promise<boolean> {
+    switch (eventsConfig) {
+        case EventsConfig.SEND_ALL:
+            return true
+        case EventsConfig.SEND_EMAILS:
+            return customer.status.has('with_email')
+        case EventsConfig.SEND_IDENTIFIED:
+            return customer.status.has('identified')
+        default:
+            throw new Error(`Unknown eventsConfig: ${eventsConfig}`)
+    }
+}
+
+async function exportSingleEvent(event: PluginEvent, customer: Customer, authorizationHeader: string, host: string) {
+    // Clean up properties
+    if (event.properties) {
+        delete event.properties['$set']
+        delete event.properties['$set_once']
+    }
+
+    // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
     await callCustomerIoApi('PUT', host, `/api/v1/customers/${event.distinct_id}`, authorizationHeader, {
-        _update: userExists,
-        email,
+        _update: customer.existsAlready,
+        email: customer.email,
         identifier: event.distinct_id,
-        ...combinedSetObject
+        ...(event.$set || {})
     })
-    await cache.set(event.distinct_id, true)
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
+    // Track event
     // See https://www.customer.io/docs/api/#operation/track
     await callCustomerIoApi('POST', host, `/api/v1/customers/${event.distinct_id}/events`, authorizationHeader, {
         name: event.event,
         type: eventType,
         timestamp: eventTimestamp,
-        data: flattenedEventProperties
+        data: event.properties || {}
     })
-}
-
-function isAnonymousUser({ distinct_id, properties }: PluginEvent) {
-    if (properties) return properties['$device_id'] === distinct_id
-
-    // A fallback in case the event doesn't have `properties` set, for some reason.
-    const re = /^[\w]{14}-[\w]{14}-[\w]{8}-[\w]{6}-[\w]{14}$/g
-    return re.test(String(distinct_id))
 }
 
 function isEmail(email: string): boolean {
