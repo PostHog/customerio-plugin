@@ -226,18 +226,17 @@ function isEmail(email: string): boolean {
     return re.test(email.toLowerCase())
 }
 
-function getEmailFromSetObject(event: PluginEvent, key: '$set' | '$set_once' | 'properties'): string | null {
-    const source = event[key]
-    if (typeof source !== 'object' || !source['email']) {
-        return null
-    }
-    const emailCandidate = source['email']
-    return isEmail(emailCandidate) ? emailCandidate : null
-}
-
 function getEmailFromEvent(event: PluginEvent): string | null {
     if (isEmail(event.distinct_id)) {
         return event.distinct_id
     }
-    return getEmailFromSetObject(event, '$set') || getEmailFromSetObject(event, '$set_once')
+    const setAttribute = event.$set
+    if (typeof setAttribute !== 'object' || !setAttribute['email']) {
+        return null
+    }
+    const emailCandidate = setAttribute['email']
+    if (isEmail(emailCandidate)) {
+        return emailCandidate
+    }
+    return null
 }
