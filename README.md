@@ -6,9 +6,9 @@ Send event data into [Customer.io](https://customer.io/). User emails will also 
 
 ## Installation
 
-1. Visit 'Project Plugins' under 'Settings'
-1. Enable plugins if you haven't already done so
-1. Click the 'Repository' tab next to 'Installed'
-1. Click 'Install' on this plugin
-1. Add your [Customer.io](https://customer.io/) site ID and token at the configuration step
-1. Enable the plugin and watch your 'People' list get populated in Customer.io!
+1. Open PostHog.
+1. Visit the Apps view from the sidebar.
+1. Go to the Repository tab.
+1. Find this app (Customer.io) in the list.
+1. Install it and immediately provide your [Customer.io](https://customer.io/) Site ID and API Key in the configuration pane.
+1. Enable the app and watch your 'People' list get populated in Customer.io as events come into PostHog!
