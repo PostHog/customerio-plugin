@@ -197,14 +197,17 @@ async function exportSingleEvent(event: PluginEvent, customer: Customer, authori
         delete event.properties['$set_once']
     }
 
+    const customerPayload: Record<string, any> = {
+        ...(event.$set || {}),
+        _update: customer.existsAlready,
+        identifier: event.distinct_id
+    }
+    if (customer.email) {
+        customerPayload.email = customer.email
+    }
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
-    await callCustomerIoApi('PUT', host, `/api/v1/customers/${event.distinct_id}`, authorizationHeader, {
-        _update: customer.existsAlready,
-        email: customer.email,
-        identifier: event.distinct_id,
-        ...(event.$set || {})
-    })
+    await callCustomerIoApi('PUT', host, `/api/v1/customers/${event.distinct_id}`, authorizationHeader, customerPayload)
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
@@ -227,9 +230,6 @@ function isEmail(email: string): boolean {
 }
 
 function getEmailFromEvent(event: PluginEvent): string | null {
-    if (isEmail(event.distinct_id)) {
-        return event.distinct_id
-    }
     const setAttribute = event.$set
     if (typeof setAttribute !== 'object' || !setAttribute['email']) {
         return null
@@ -237,6 +237,10 @@ function getEmailFromEvent(event: PluginEvent): string | null {
     const emailCandidate = setAttribute['email']
     if (isEmail(emailCandidate)) {
         return emailCandidate
+    }
+    // Use distinct ID as a last resort
+    if (isEmail(event.distinct_id)) {
+        return event.distinct_id
     }
     return null
 }
