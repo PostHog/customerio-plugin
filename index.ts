@@ -87,7 +87,7 @@ async function callCustomerIoApi(
     return response
 }
 
-export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async ({ config, global }) => {
+export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async ({ config, global, storage }) => {
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
@@ -96,9 +96,17 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
 
+    const credentialsVerifiedPreviously = await storage.get(global.authorizationHeader, false)
+    
+    if (credentialsVerifiedPreviously) {
+        console.log('Customer.io credentials verified previously. Completing setupPlugin.')
+        return
+    }
+    
     // See https://www.customer.io/docs/api/#operation/getCioAllowlist
     await callCustomerIoApi('GET', 'api.customer.io', '/v1/api/info/ip_addresses', global.authorizationHeader)
-    console.log('Successfully authenticated with Customer.io.')
+    await storage.set(global.authorizationHeader, true)
+    console.log('Successfully authenticated with Customer.io. Completing setupPlugin.')
 }
 
 export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async (events, meta) => {
