@@ -176,7 +176,10 @@ async function syncCustomerMetadata(event: PluginEvent, storage: StorageExtensio
     if (email) {
         customerStatus.add('with_email')
     }
-    await storage.set(customerStatusKey, Array.from(customerStatus))
+
+    if (customerStatus.size > customerStatusArray.length) {
+        await storage.set(customerStatusKey, Array.from(customerStatus))
+    }
 
     return {
         status: customerStatus,
