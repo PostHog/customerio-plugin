@@ -120,11 +120,11 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         console.log(`${batchInfo} Skipping.`)
         return
     }
-    const nameFilteredEvents = events.filter(
-        (event) => global.eventNames.length === 0 || global.eventNames.includes(event.event)
+    const filteredWithCustomers: [PluginEvent, Customer][] = await Promise.all(
+        events.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
     )
-    const nameFilteredEventsWithCustomers: [PluginEvent, Customer][] = await Promise.all(
-        nameFilteredEvents.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
+    const nameFilteredEventsWithCustomers = filteredWithCustomers.filter(
+        (event) => global.eventNames.length === 0 || global.eventNames.includes(event.event)
     )
     const fullyFilteredEventsWithCustomers = nameFilteredEventsWithCustomers.filter(([, customer]) =>
         shouldCustomerBeTracked(customer, global.eventsConfig)
