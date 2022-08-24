@@ -1,6 +1,6 @@
 {
     "name": "customerio-plugin",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Send event data and emails into Customer.io.",
     "main": "index.ts",
     "repository": {
