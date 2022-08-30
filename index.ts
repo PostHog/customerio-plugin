@@ -126,7 +126,10 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
     const nameFilteredEventsWithCustomers = filteredWithCustomers.filter(
         (event) => global.eventNames.length === 0 || global.eventNames.includes(event.event)
     )
-    const fullyFilteredEventsWithCustomers = nameFilteredEventsWithCustomers.filter(([, customer]) =>
+    const filterCreateAlias = filteredWithCustomers.filter(
+        (event) => event.event !== '$create_alias'
+    )
+    const fullyFilteredEventsWithCustomers = filterCreateAlias.filter(([, customer]) =>
         shouldCustomerBeTracked(customer, global.eventsConfig)
     )
 
