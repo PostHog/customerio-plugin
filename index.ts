@@ -1,5 +1,5 @@
 import { RetryError, StorageExtension } from '@posthog/plugin-scaffold'
-import type { PluginInput, Plugin, PluginEvent } from '@posthog/plugin-scaffold'
+import type { PluginInput, Plugin, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 import { Response } from 'node-fetch'
 
@@ -97,12 +97,12 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
 
     const credentialsVerifiedPreviously = await storage.get(global.authorizationHeader, false)
-    
+
     if (credentialsVerifiedPreviously) {
         console.log('Customer.io credentials verified previously. Completing setupPlugin.')
         return
     }
-    
+
     // See https://www.customer.io/docs/api/#operation/getCioAllowlist
     await callCustomerIoApi('GET', 'api.customer.io', '/v1/api/info/ip_addresses', global.authorizationHeader)
     await storage.set(global.authorizationHeader, true)
@@ -120,15 +120,13 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         console.log(`${batchInfo} Skipping.`)
         return
     }
-    const filteredWithCustomers: [PluginEvent, Customer][] = await Promise.all(
+    const filteredWithCustomers: [ProcessedPluginEvent, Customer][] = await Promise.all(
         events.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
     )
     const nameFilteredEventsWithCustomers = filteredWithCustomers.filter(
-        (event) => global.eventNames.length === 0 || global.eventNames.includes(event.event)
+        (event) => global.eventNames.length === 0 || global.eventNames.includes(event[0].event)
     )
-    const filterCreateAlias = nameFilteredEventsWithCustomers.filter(
-        (event) => event.event !== '$create_alias'
-    )
+    const filterCreateAlias = nameFilteredEventsWithCustomers.filter((event) => event[0].event !== '$create_alias')
     const fullyFilteredEventsWithCustomers = filterCreateAlias.filter(([, customer]) =>
         shouldCustomerBeTracked(customer, global.eventsConfig)
     )
@@ -164,7 +162,7 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
     console.log(`Sent ${finalEventCount} event${finalEventCount !== 1 ? 's' : ''} to Customer.io.`)
 }
 
-async function syncCustomerMetadata(event: PluginEvent, storage: StorageExtension): Promise<Customer> {
+async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: StorageExtension): Promise<Customer> {
     const customerStatusKey = `customer-status/${event.distinct_id}`
     const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
     const customerStatus = new Set(customerStatusArray) as Customer['status']
@@ -204,7 +202,12 @@ function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig)
     }
 }
 
-async function exportSingleEvent(event: PluginEvent, customer: Customer, authorizationHeader: string, host: string) {
+async function exportSingleEvent(
+    event: ProcessedPluginEvent,
+    customer: Customer,
+    authorizationHeader: string,
+    host: string
+) {
     // Clean up properties
     if (event.properties) {
         delete event.properties['$set']
@@ -243,7 +246,7 @@ function isEmail(email: string): boolean {
     return re.test(email.toLowerCase())
 }
 
-function getEmailFromEvent(event: PluginEvent): string | null {
+function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
     const setAttribute = event.$set
     if (typeof setAttribute !== 'object' || !setAttribute['email']) {
         return null
