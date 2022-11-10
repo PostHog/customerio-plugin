@@ -47,6 +47,12 @@
             "name": "PostHog Event Allowlist",
             "type": "string",
             "hint": "If this is set, only the specified events (comma-separated) will be sent to Customer.io."
+        },
+        {
+            "key": "eventsToBlock",
+            "name": "PostHog Event Blocklist",
+            "type": "string",
+            "hint": "If this is set, the specified events (comma-separated) will NOT be sent to Customer.io."
         }
     ]
 }

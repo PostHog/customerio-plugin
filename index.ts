@@ -16,10 +16,12 @@ interface CustomerIoPluginInput extends PluginInput {
             | 'Only send events from users with emails'
             | 'Only send events from users that have been identified'
         eventsToSend?: string
+        eventsToBlock?: string
     }
     global: {
         authorizationHeader: string
         eventNames: string[]
+        blockEventNames: string[]
         eventsConfig: EventsConfig
     }
 }
@@ -93,6 +95,7 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     )
     global.authorizationHeader = `Basic ${customerioBase64AuthToken}`
     global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
+    global.blockEventNames = config.eventsToBlock ? config.eventsToBlock.split(',').filter(Boolean) : []
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
 
@@ -124,7 +127,15 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         events.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
     )
     const nameFilteredEventsWithCustomers = filteredWithCustomers.filter(
-        (event) => global.eventNames.length === 0 || global.eventNames.includes(event[0].event)
+        (event) => {
+            if (global.eventNames.length > 0) {
+                return global.eventNames.includes(event[0].event)
+            }
+            if (global.blockEventNames.length > 0) {
+                return !global.blockEventNames.includes(event[0].event)
+            }
+            return true
+        }
     )
     const filterCreateAlias = nameFilteredEventsWithCustomers.filter((event) => event[0].event !== '$create_alias')
     const fullyFilteredEventsWithCustomers = filterCreateAlias.filter(([, customer]) =>
