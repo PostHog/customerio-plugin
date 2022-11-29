@@ -11,6 +11,7 @@ interface CustomerIoPluginInput extends PluginInput {
         customerioSiteId: string
         customerioToken: string
         host?: 'track.customer.io' | 'track-eu.customer.io'
+        identifyByEmail?: boolean
         sendEventsFromAnonymousUsers?:
             | 'Send all events'
             | 'Only send events from users with emails'
@@ -143,19 +144,33 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         )
     }
 
+    const identifyByEmail = config.identifyByEmail || false
+
     // Tracking events in two stages, to improve consistency of customer creation
     const customerCreateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => !customer.existsAlready)
     const customerUpdateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => customer.existsAlready)
     await Promise.all(
         customerCreateEvents.map(
             async ([event, customer]) =>
-                await exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST)
+                await exportSingleEvent(
+                    event,
+                    customer,
+                    global.authorizationHeader,
+                    config.host || DEFAULT_HOST,
+                    identifyByEmail
+                )
         )
     )
     await Promise.all(
         customerUpdateEvents.map(
             async ([event, customer]) =>
-                await exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST)
+                await exportSingleEvent(
+                    event,
+                    customer,
+                    global.authorizationHeader,
+                    config.host || DEFAULT_HOST,
+                    identifyByEmail
+                )
         )
     )
 
@@ -206,7 +221,8 @@ async function exportSingleEvent(
     event: ProcessedPluginEvent,
     customer: Customer,
     authorizationHeader: string,
-    host: string
+    host: string,
+    identifyByEmail: boolean
 ) {
     // Clean up properties
     if (event.properties) {
@@ -219,8 +235,14 @@ async function exportSingleEvent(
         _update: customer.existsAlready,
         identifier: event.distinct_id
     }
+
+    let id = event.distinct_id
+
     if (customer.email) {
         customerPayload.email = customer.email
+        if (identifyByEmail) {
+            id = customer.email
+        }
     }
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
