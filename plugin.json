@@ -31,6 +31,14 @@
             "choices": ["track.customer.io", "track-eu.customer.io"]
         },
         {
+            "key": "identifyByEmail",
+            "name": "Identify by email",
+            "hint": "If enabled, the plugin will identify users by email instead of ID, whenever an email is available.",
+            "type": "choice",
+            "default": "No",
+            "choices": ["Yes", "No"]
+        },
+        {
             "key": "sendEventsFromAnonymousUsers",
             "name": "Filtering of Anonymous Users",
             "type": "choice",

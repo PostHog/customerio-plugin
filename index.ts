@@ -11,6 +11,7 @@ interface CustomerIoPluginInput extends PluginInput {
         customerioSiteId: string
         customerioToken: string
         host?: 'track.customer.io' | 'track-eu.customer.io'
+        identifyByEmail?: 'Yes' | 'No'
         sendEventsFromAnonymousUsers?:
             | 'Send all events'
             | 'Only send events from users with emails'
@@ -21,6 +22,7 @@ interface CustomerIoPluginInput extends PluginInput {
         authorizationHeader: string
         eventNames: string[]
         eventsConfig: EventsConfig
+        identifyByEmail: boolean
     }
 }
 
@@ -95,6 +97,7 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
+    global.identifyByEmail = config.identifyByEmail === 'Yes'
 
     const credentialsVerifiedPreviously = await storage.get(global.authorizationHeader, false)
 
@@ -149,13 +152,25 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
     await Promise.all(
         customerCreateEvents.map(
             async ([event, customer]) =>
-                await exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST)
+                await exportSingleEvent(
+                    event,
+                    customer,
+                    global.authorizationHeader,
+                    config.host || DEFAULT_HOST,
+                    global.identifyByEmail
+                )
         )
     )
     await Promise.all(
         customerUpdateEvents.map(
             async ([event, customer]) =>
-                await exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST)
+                await exportSingleEvent(
+                    event,
+                    customer,
+                    global.authorizationHeader,
+                    config.host || DEFAULT_HOST,
+                    global.identifyByEmail
+                )
         )
     )
 
@@ -206,7 +221,8 @@ async function exportSingleEvent(
     event: ProcessedPluginEvent,
     customer: Customer,
     authorizationHeader: string,
-    host: string
+    host: string,
+    identifyByEmail: boolean
 ) {
     // Clean up properties
     if (event.properties) {
@@ -219,18 +235,24 @@ async function exportSingleEvent(
         _update: customer.existsAlready,
         identifier: event.distinct_id
     }
+
+    let id = event.distinct_id
+
     if (customer.email) {
         customerPayload.email = customer.email
+        if (identifyByEmail) {
+            id = customer.email
+        }
     }
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
-    await callCustomerIoApi('PUT', host, `/api/v1/customers/${event.distinct_id}`, authorizationHeader, customerPayload)
+    await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
     // Track event
     // See https://www.customer.io/docs/api/#operation/track
-    await callCustomerIoApi('POST', host, `/api/v1/customers/${event.distinct_id}/events`, authorizationHeader, {
+    await callCustomerIoApi('POST', host, `/api/v1/customers/${id}/events`, authorizationHeader, {
         name: event.event,
         type: eventType,
         timestamp: eventTimestamp,
