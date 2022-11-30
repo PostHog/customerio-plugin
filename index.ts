@@ -11,7 +11,7 @@ interface CustomerIoPluginInput extends PluginInput {
         customerioSiteId: string
         customerioToken: string
         host?: 'track.customer.io' | 'track-eu.customer.io'
-        identifyByEmail?: boolean
+        identifyByEmail?: 'Yes' | 'No'
         sendEventsFromAnonymousUsers?:
             | 'Send all events'
             | 'Only send events from users with emails'
@@ -22,6 +22,7 @@ interface CustomerIoPluginInput extends PluginInput {
         authorizationHeader: string
         eventNames: string[]
         eventsConfig: EventsConfig
+        identifyByEmail: boolean
     }
 }
 
@@ -96,6 +97,7 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
+    global.identifyByEmail = config.identifyByEmail === 'Yes'
 
     const credentialsVerifiedPreviously = await storage.get(global.authorizationHeader, false)
 
@@ -144,8 +146,6 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         )
     }
 
-    const identifyByEmail = config.identifyByEmail || false
-
     // Tracking events in two stages, to improve consistency of customer creation
     const customerCreateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => !customer.existsAlready)
     const customerUpdateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => customer.existsAlready)
@@ -157,7 +157,7 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
                     customer,
                     global.authorizationHeader,
                     config.host || DEFAULT_HOST,
-                    identifyByEmail
+                    global.identifyByEmail
                 )
         )
     )
@@ -169,7 +169,7 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
                     customer,
                     global.authorizationHeader,
                     config.host || DEFAULT_HOST,
-                    identifyByEmail
+                    global.identifyByEmail
                 )
         )
     )
@@ -246,13 +246,13 @@ async function exportSingleEvent(
     }
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
-    await callCustomerIoApi('PUT', host, `/api/v1/customers/${event.distinct_id}`, authorizationHeader, customerPayload)
+    await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
     // Track event
     // See https://www.customer.io/docs/api/#operation/track
-    await callCustomerIoApi('POST', host, `/api/v1/customers/${event.distinct_id}/events`, authorizationHeader, {
+    await callCustomerIoApi('POST', host, `/api/v1/customers/${id}/events`, authorizationHeader, {
         name: event.event,
         type: eventType,
         timestamp: eventTimestamp,

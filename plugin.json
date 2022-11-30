@@ -34,8 +34,9 @@
             "key": "identifyByEmail",
             "name": "Identify by email",
             "hint": "If enabled, the plugin will identify users by email instead of ID, whenever an email is available.",
-            "type": "boolean",
-            "default": false
+            "type": "choice",
+            "default": "No",
+            "choices": ["Yes", "No"]
         },
         {
             "key": "sendEventsFromAnonymousUsers",
