@@ -217,6 +217,17 @@ function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig)
     }
 }
 
+function filterByByteLength(obj: Record<string, any>, maxLength: number): Record<string, any> {
+    const filtered: Record<string, any> = {}
+    for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'string' && Buffer.byteLength(value) > maxLength) {
+            continue
+        }
+        filtered[key] = value
+    }
+    return filtered
+}
+
 async function exportSingleEvent(
     event: ProcessedPluginEvent,
     customer: Customer,
@@ -230,7 +241,7 @@ async function exportSingleEvent(
         delete event.properties['$set_once']
     }
 
-    const customerPayload: Record<string, any> = {
+    let customerPayload: Record<string, any> = {
         ...(event.$set || {}),
         _update: customer.existsAlready,
         identifier: event.distinct_id
@@ -244,6 +255,11 @@ async function exportSingleEvent(
             id = customer.email
         }
     }
+
+    // filter customerPayload by removing any key where the value is bigger than 1000 bytes
+    // See https://www.customer.io/docs/api/#operation/identify
+    customerPayload = filterByByteLength(customerPayload, 1000)
+
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
     await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
