@@ -236,6 +236,12 @@ async function exportSingleEvent(
         identifier: event.distinct_id
     }
 
+    if ("created_at" in customerPayload) {
+        // Timestamp must be in seconds since UNIX epoch.
+        // See: https://customer.io/docs/journeys/faq-timestamps/.
+        customerPayload.created_at = Date.parse(customerPayload.created_at) / 1000
+    }
+
     let id = event.distinct_id
 
     if (customer.email) {
