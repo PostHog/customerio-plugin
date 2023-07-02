@@ -1,12 +1,20 @@
-import { RetryError, StorageExtension } from '@posthog/plugin-scaffold'
-import type { PluginInput, Plugin, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginMeta, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
+import type { Plugin, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 import { Response } from 'node-fetch'
 
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
 
-interface CustomerIoPluginInput extends PluginInput {
+type SingleEventProps = {
+    event: ProcessedPluginEvent
+    customer: Customer
+    authorizationHeader: string
+    host: string
+    identifyByEmail: boolean
+}
+
+type CustomerIoPlugin = Plugin<{
     config: {
         customerioSiteId: string
         customerioToken: string
@@ -24,7 +32,14 @@ interface CustomerIoPluginInput extends PluginInput {
         eventsConfig: EventsConfig
         identifyByEmail: boolean
     }
-}
+    jobs: {
+        retryExportSingleEvent: {
+            props: SingleEventProps
+            meta: PluginMeta<CustomerIoPlugin>
+            count: number
+        }
+    }
+}>
 
 enum EventsConfig {
     SEND_ALL = '1',
@@ -32,7 +47,7 @@ enum EventsConfig {
     SEND_IDENTIFIED = '3'
 }
 
-const EVENTS_CONFIG_MAP = {
+const EVENTS_CONFIG_MAP: Record<string, EventsConfig> = {
     'Send all events': EventsConfig.SEND_ALL,
     'Only send events from users with emails': EventsConfig.SEND_EMAILS,
     'Only send events from users that have been identified': EventsConfig.SEND_IDENTIFIED
@@ -89,7 +104,7 @@ async function callCustomerIoApi(
     return response
 }
 
-export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async ({ config, global, storage }) => {
+export const setupPlugin: CustomerIoPlugin['setupPlugin'] = async ({ config, global, storage }) => {
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
@@ -112,7 +127,7 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     console.log('Successfully authenticated with Customer.io. Completing setupPlugin.')
 }
 
-export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async (events, meta) => {
+export const exportEvents: CustomerIoPlugin['exportEvents'] = async (events, meta) => {
     const { global, config } = meta
     // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
     if (!global.eventNames) {
@@ -153,11 +168,14 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         customerCreateEvents.map(
             async ([event, customer]) =>
                 await exportSingleEvent(
-                    event,
-                    customer,
-                    global.authorizationHeader,
-                    config.host || DEFAULT_HOST,
-                    global.identifyByEmail
+                    {
+                        event,
+                        customer,
+                        authorizationHeader: global.authorizationHeader,
+                        host: config.host || DEFAULT_HOST,
+                        identifyByEmail: global.identifyByEmail
+                    },
+                    meta
                 )
         )
     )
@@ -165,11 +183,14 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
         customerUpdateEvents.map(
             async ([event, customer]) =>
                 await exportSingleEvent(
-                    event,
-                    customer,
-                    global.authorizationHeader,
-                    config.host || DEFAULT_HOST,
-                    global.identifyByEmail
+                    {
+                        event,
+                        customer,
+                        authorizationHeader: global.authorizationHeader,
+                        host: config.host || DEFAULT_HOST,
+                        identifyByEmail: global.identifyByEmail
+                    },
+                    meta
                 )
         )
     )
@@ -217,17 +238,31 @@ function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig)
     }
 }
 
-async function exportSingleEvent(
-    event: ProcessedPluginEvent,
-    customer: Customer,
-    authorizationHeader: string,
-    host: string,
-    identifyByEmail: boolean
-) {
-    // Clean up properties
+async function exportSingleEvent(props: SingleEventProps, meta: PluginMeta<CustomerIoPlugin>, count?: number) {
+    const { event, customer, authorizationHeader, host, identifyByEmail } = props
+
+    event.properties
+
     if (event.properties) {
+        // Clean up PostHog properties
         delete event.properties['$set']
         delete event.properties['$set_once']
+
+        // Customer.io struggles to ingest any property with values that have >1000 chars
+        const trimKeys: Array<string> = ['$current_url', '$pathname', '$referrer']
+
+        const updatedValues = trimKeys.reduce<Record<string, string>>((acc, key) => {
+            const value = event.properties[key]
+
+            if (value && typeof value === 'string') {
+                const trimmedValue = value.substring(0, 990)
+                acc = { ...acc, [key]: trimmedValue }
+            }
+
+            return acc
+        }, {})
+
+        event.properties = { ...event.properties, updatedValues }
     }
 
     const customerPayload: Record<string, any> = {
@@ -250,20 +285,26 @@ async function exportSingleEvent(
             id = customer.email
         }
     }
-    // Create or update customer
-    // See https://www.customer.io/docs/api/#operation/identify
-    await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
-    // Track event
-    // See https://www.customer.io/docs/api/#operation/track
-    await callCustomerIoApi('POST', host, `/api/v1/customers/${id}/events`, authorizationHeader, {
-        name: event.event,
-        type: eventType,
-        timestamp: eventTimestamp,
-        data: event.properties || {}
-    })
+
+    try {
+        // Create or update customer
+        // See https://www.customer.io/docs/api/#operation/identify
+        await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
+
+        // Track event
+        // See https://www.customer.io/docs/api/#operation/track
+        await callCustomerIoApi('POST', host, `/api/v1/customers/${id}/events`, authorizationHeader, {
+            name: event.event,
+            type: eventType,
+            timestamp: eventTimestamp,
+            data: event.properties || {}
+        })
+    } catch (error) {
+        meta.jobs.retryExportSingleEvent({ props, meta, count: (count || 0) + 1 }).runIn(5, 'minutes')
+    }
 }
 
 function isEmail(email: string): boolean {
@@ -288,4 +329,15 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
         return event.distinct_id
     }
     return null
+}
+
+export const jobs: CustomerIoPlugin['jobs'] = {
+    retryExportSingleEvent: async ({ props, meta, count }) => {
+        if (count >= 3) {
+            console.error('[retryExportSingleEvent] Failed to send event:', props.event.event)
+            return
+        }
+
+        exportSingleEvent(props, meta, count)
+    }
 }
