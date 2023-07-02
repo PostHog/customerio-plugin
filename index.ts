@@ -17,10 +17,12 @@ interface CustomerIoPluginInput extends PluginInput {
             | 'Only send events from users with emails'
             | 'Only send events from users that have been identified'
         eventsToSend?: string
+        eventsToBlock?: string
     }
     global: {
         authorizationHeader: string
         eventNames: string[]
+        blockEventNames: string[]
         eventsConfig: EventsConfig
         identifyByEmail: boolean
     }
@@ -29,13 +31,13 @@ interface CustomerIoPluginInput extends PluginInput {
 enum EventsConfig {
     SEND_ALL = '1',
     SEND_EMAILS = '2',
-    SEND_IDENTIFIED = '3'
+    SEND_IDENTIFIED = '3',
 }
 
 const EVENTS_CONFIG_MAP = {
     'Send all events': EventsConfig.SEND_ALL,
     'Only send events from users with emails': EventsConfig.SEND_EMAILS,
-    'Only send events from users that have been identified': EventsConfig.SEND_IDENTIFIED
+    'Only send events from users that have been identified': EventsConfig.SEND_IDENTIFIED,
 }
 
 interface Customer {
@@ -95,6 +97,13 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     )
     global.authorizationHeader = `Basic ${customerioBase64AuthToken}`
     global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
+    global.blockEventNames = config.eventsToBlock ? config.eventsToBlock.split(',').filter(Boolean) : []
+
+    const eventsToSendAndBlock = global.eventNames.filter((eventName) => global.blockEventNames.includes(eventName))
+    if (eventsToSendAndBlock.length > 0) {
+        throw new Error('You cannot send and block the same event: ' + eventsToSendAndBlock.join(', '))
+    }
+
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
     global.identifyByEmail = config.identifyByEmail === 'Yes'
@@ -126,9 +135,15 @@ export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async
     const filteredWithCustomers: [ProcessedPluginEvent, Customer][] = await Promise.all(
         events.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
     )
-    const nameFilteredEventsWithCustomers = filteredWithCustomers.filter(
-        (event) => global.eventNames.length === 0 || global.eventNames.includes(event[0].event)
-    )
+    const nameFilteredEventsWithCustomers = filteredWithCustomers.filter((event) => {
+        if (global.eventNames.length > 0) {
+            return global.eventNames.includes(event[0].event)
+        }
+        if (global.blockEventNames.length > 0) {
+            return !global.blockEventNames.includes(event[0].event)
+        }
+        return true
+    })
     const filterCreateAlias = nameFilteredEventsWithCustomers.filter((event) => event[0].event !== '$create_alias')
     const fullyFilteredEventsWithCustomers = filterCreateAlias.filter(([, customer]) =>
         shouldCustomerBeTracked(customer, global.eventsConfig)
@@ -200,7 +215,7 @@ async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: Storag
     return {
         status: customerStatus,
         existsAlready: customerExistsAlready,
-        email
+        email,
     }
 }
 
@@ -233,7 +248,7 @@ async function exportSingleEvent(
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
         _update: customer.existsAlready,
-        identifier: event.distinct_id
+        identifier: event.distinct_id,
     }
 
     if ("created_at" in customerPayload) {
@@ -262,7 +277,7 @@ async function exportSingleEvent(
         name: event.event,
         type: eventType,
         timestamp: eventTimestamp,
-        data: event.properties || {}
+        data: event.properties || {},
     })
 }
 
