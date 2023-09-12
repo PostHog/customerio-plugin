@@ -112,69 +112,32 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     console.log('Successfully authenticated with Customer.io. Completing setupPlugin.')
 }
 
-export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async (events, meta) => {
+export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, meta) => {
     const { global, config } = meta
     // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
     if (!global.eventNames) {
         throw new RetryError('Cannot run exportEvents because setupPlugin failed!')
     }
-    const batchInfo = `Batch of ${events.length} event${events.length !== 1 ? 's' : ''} received.`
-    if (events.length === 0) {
-        console.log(`${batchInfo} Skipping.`)
+
+    if (global.eventNames.length !== 0 && !global.eventNames.includes(event.event)) {
         return
     }
-    const filteredWithCustomers: [ProcessedPluginEvent, Customer][] = await Promise.all(
-        events.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
-    )
-    const nameFilteredEventsWithCustomers = filteredWithCustomers.filter(
-        (event) => global.eventNames.length === 0 || global.eventNames.includes(event[0].event)
-    )
-    const filterCreateAlias = nameFilteredEventsWithCustomers.filter((event) => event[0].event !== '$create_alias')
-    const fullyFilteredEventsWithCustomers = filterCreateAlias.filter(([, customer]) =>
-        shouldCustomerBeTracked(customer, global.eventsConfig)
-    )
-
-    const finalEventCount = fullyFilteredEventsWithCustomers.length
-    if (finalEventCount === 0) {
-        console.log(`${batchInfo} None passed filtering. Skipping.`)
+    if (event.event === '$create_alias') {
         return
-    } else {
-        console.log(
-            `${batchInfo} ${
-                finalEventCount === events.length ? 'All' : finalEventCount
-            } passed filtering. Proceeding...`
-        )
     }
 
-    // Tracking events in two stages, to improve consistency of customer creation
-    const customerCreateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => !customer.existsAlready)
-    const customerUpdateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => customer.existsAlready)
-    await Promise.all(
-        customerCreateEvents.map(
-            async ([event, customer]) =>
-                await exportSingleEvent(
-                    event,
-                    customer,
-                    global.authorizationHeader,
-                    config.host || DEFAULT_HOST,
-                    global.identifyByEmail
-                )
-        )
-    )
-    await Promise.all(
-        customerUpdateEvents.map(
-            async ([event, customer]) =>
-                await exportSingleEvent(
-                    event,
-                    customer,
-                    global.authorizationHeader,
-                    config.host || DEFAULT_HOST,
-                    global.identifyByEmail
-                )
-        )
-    )
+    const customer: Customer = await syncCustomerMetadata(event, meta.storage)
+    if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
+        return
+    }
 
-    console.log(`Sent ${finalEventCount} event${finalEventCount !== 1 ? 's' : ''} to Customer.io.`)
+    await exportSingleEvent(
+        event,
+        customer,
+        global.authorizationHeader,
+        config.host || DEFAULT_HOST,
+        global.identifyByEmail
+    )
 }
 
 async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: StorageExtension): Promise<Customer> {
