@@ -119,9 +119,12 @@ export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, m
         throw new RetryError('Cannot run exportEvents because setupPlugin failed!')
     }
 
+    console.debug('received event', event.event)
     if (global.eventNames.length !== 0 && !global.eventNames.includes(event.event)) {
+        console.debug('dropping event', event.event)
         return
     }
+    console.debug('matches allow-list', event.event)
     if (event.event === '$create_alias') {
         return
     }
