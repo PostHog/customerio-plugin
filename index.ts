@@ -130,6 +130,7 @@ export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, m
     }
 
     const customer: Customer = await syncCustomerMetadata(event, meta.storage)
+    console.debug(shouldCustomerBeTracked(customer, global.eventsConfig), customer, event)
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
         return
     }
@@ -242,6 +243,7 @@ function isEmail(email: string): boolean {
 
 function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
     const setAttribute = event.$set
+    console.debug('raw event', event)
     if (typeof setAttribute !== 'object' || !setAttribute['email']) {
         return null
     }
