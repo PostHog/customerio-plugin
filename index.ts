@@ -127,6 +127,8 @@ export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, m
     }
 
     const customer: Customer = await syncCustomerMetadata(event, meta.storage)
+    console.debug(customer)
+    console.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
         return
     }
@@ -146,6 +148,8 @@ async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: Storag
     const customerStatus = new Set(customerStatusArray) as Customer['status']
     const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
+
+    console.debug(email)
 
     // Update customer status
     customerStatus.add('seen')
