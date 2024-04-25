@@ -94,7 +94,12 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
         'base64'
     )
     global.authorizationHeader = `Basic ${customerioBase64AuthToken}`
-    global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
+    global.eventNames = config.eventsToSend
+        ? (config.eventsToSend as string)
+              .split(',')
+              .map((name) => name.trim())
+              .filter(Boolean)
+        : []
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
     global.identifyByEmail = config.identifyByEmail === 'Yes'
