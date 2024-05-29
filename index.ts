@@ -249,6 +249,12 @@ function isEmail(email: string): boolean {
 }
 
 function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
+    const emailProperty = event?.person?.properties?.email
+    if (emailProperty) {
+        if (isEmail(emailProperty)) {
+            return emailProperty
+        }
+    }
     const setAttribute = event.$set
     if (typeof setAttribute !== 'object' || !setAttribute['email']) {
         return null
