@@ -132,8 +132,6 @@ export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, m
     }
 
     const customer: Customer = await syncCustomerMetadata(event, meta.storage)
-    console.debug(customer)
-    console.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
         return
     }
@@ -153,8 +151,6 @@ async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: Storag
     const customerStatus = new Set(customerStatusArray) as Customer['status']
     const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
-
-    console.debug(email)
 
     // Update customer status
     customerStatus.add('seen')
@@ -222,9 +218,15 @@ async function exportSingleEvent(
             id = customer.email
         }
     }
+
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
     await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
+
+    if (event.event === '$identify') {
+        const mergeUserPayload = { primary : { id }, secondary: { id: event.properties.$anon_distinct_id }}
+        await callCustomerIoApi('POST', host, `/api/v1/merge_customers`, authorizationHeader, mergeUserPayload)
+    }
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
