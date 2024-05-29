@@ -146,7 +146,7 @@ export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, m
 }
 
 async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: StorageExtension): Promise<Customer> {
-    const customerStatusKey = `customer-status/${event.distinct_id}`
+    const customerStatusKey = `customer-status/${event.person.uuid}`
     const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
     const customerStatus = new Set(customerStatusArray) as Customer['status']
     const customerExistsAlready = customerStatus.has('seen')
@@ -201,7 +201,7 @@ async function exportSingleEvent(
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
         _update: customer.existsAlready,
-        identifier: event.distinct_id
+        identifier: event.person.uuid
     }
 
     if ("created_at" in customerPayload) {
@@ -210,7 +210,7 @@ async function exportSingleEvent(
         customerPayload.created_at = Date.parse(customerPayload.created_at) / 1000
     }
 
-    let id = event.distinct_id
+    let id = event.person.uuid
 
     if (customer.email) {
         customerPayload.email = customer.email
@@ -223,8 +223,9 @@ async function exportSingleEvent(
     // See https://www.customer.io/docs/api/#operation/identify
     await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
 
-    if (event.event === '$identify') {
-        const mergeUserPayload = { primary : { id }, secondary: { id: event.properties.$anon_distinct_id }}
+    if (['$identify', '$merge_dangerously'].includes(event.event) && !event.$merge_blocked) {
+        const secondaryId = event?.properties?.$anon_distinct_id ?? event?.properties?.alias
+        const mergeUserPayload = { primary : { id: event.distinct_id }, secondary: { id: secondaryId }}
         await callCustomerIoApi('POST', host, `/api/v1/merge_customers`, authorizationHeader, mergeUserPayload)
     }
 
