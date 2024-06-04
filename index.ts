@@ -223,9 +223,9 @@ async function exportSingleEvent(
     // See https://www.customer.io/docs/api/#operation/identify
     await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
 
-    if (['$identify', '$merge_dangerously'].includes(event.event) && !event.$merge_blocked) {
+    if (['$identify', '$merge_dangerously'].includes(event.event) && !event.properties.$merge_blocked) {
         const secondaryId = event?.properties?.$anon_distinct_id ?? event?.properties?.alias
-        const mergeUserPayload = { primary : { id: event.distinct_id }, secondary: { id: secondaryId }}
+        const mergeUserPayload = { primary : { id }, secondary: { id: secondaryId }}
         await callCustomerIoApi('POST', host, `/api/v1/merge_customers`, authorizationHeader, mergeUserPayload)
     }
 
