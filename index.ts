@@ -132,8 +132,6 @@ export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, m
     }
 
     const customer: Customer = await syncCustomerMetadata(event, meta.storage)
-    console.debug(customer)
-    console.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
         return
     }
@@ -148,13 +146,11 @@ export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, m
 }
 
 async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: StorageExtension): Promise<Customer> {
-    const customerStatusKey = `customer-status/${event.distinct_id}`
+    const customerStatusKey = `customer-status/${event.person.uuid}`
     const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
     const customerStatus = new Set(customerStatusArray) as Customer['status']
     const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
-
-    console.debug(email)
 
     // Update customer status
     customerStatus.add('seen')
@@ -205,7 +201,7 @@ async function exportSingleEvent(
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
         _update: customer.existsAlready,
-        identifier: event.distinct_id
+        identifier: event.person.uuid
     }
 
     if ("created_at" in customerPayload) {
@@ -214,7 +210,7 @@ async function exportSingleEvent(
         customerPayload.created_at = Date.parse(customerPayload.created_at) / 1000
     }
 
-    let id = event.distinct_id
+    let id = event.person.uuid
 
     if (customer.email) {
         customerPayload.email = customer.email
@@ -222,9 +218,16 @@ async function exportSingleEvent(
             id = customer.email
         }
     }
+
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
     await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
+
+    if (['$identify', '$merge_dangerously'].includes(event.event) && !event.properties.$merge_blocked) {
+        const secondaryId = event?.properties?.$anon_distinct_id ?? event?.properties?.alias
+        const mergeUserPayload = { primary : { id }, secondary: { id: secondaryId }}
+        await callCustomerIoApi('POST', host, `/api/v1/merge_customers`, authorizationHeader, mergeUserPayload)
+    }
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
@@ -247,6 +250,12 @@ function isEmail(email: string): boolean {
 }
 
 function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
+    const emailProperty = event?.person?.properties?.email
+    if (emailProperty) {
+        if (isEmail(emailProperty)) {
+            return emailProperty
+        }
+    }
     const setAttribute = event.$set
     if (typeof setAttribute !== 'object' || !setAttribute['email']) {
         return null
