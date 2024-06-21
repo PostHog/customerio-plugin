@@ -205,7 +205,8 @@ async function exportSingleEvent(
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
         _update: customer.existsAlready,
-        identifier: event.distinct_id
+        identifier: event.distinct_id,
+        anonymous_id: `anon_${event.distinct_id}`
     }
 
     if ("created_at" in customerPayload) {
@@ -234,6 +235,7 @@ async function exportSingleEvent(
         name: event.event,
         type: eventType,
         timestamp: eventTimestamp,
+        anonymous_id: `anon_${event.distinct_id}`,
         data: event.properties || {}
     })
 }
