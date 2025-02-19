@@ -152,13 +152,17 @@ async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: Storag
     const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
     const customerStatus = new Set(customerStatusArray) as Customer['status']
     const customerExistsAlready = customerStatus.has('seen')
-    const email = getEmailFromEvent(event)
+    // const email = getEmailFromEvent(event)
+    const { email, userId, cio_id } = getIdentifiersFromEvent(event)
 
-    console.debug(email)
+    console.debug(email, userId, cio_id)
 
     // Update customer status
     customerStatus.add('seen')
-    if (event.event === '$identify') {
+    // if (event.event === '$identify') {
+    //     customerStatus.add('identified')
+    // }
+    if (userId || cio_id) {
         customerStatus.add('identified')
     }
     if (email) {
@@ -189,7 +193,7 @@ function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig)
     }
 }
 
-async function exportSingleEvent(
+export async function exportSingleEvent(
     event: ProcessedPluginEvent,
     customer: Customer,
     authorizationHeader: string,
@@ -208,29 +212,51 @@ async function exportSingleEvent(
         identifier: event.distinct_id
     }
 
-    if ("created_at" in customerPayload) {
+    if ('created_at' in customerPayload) {
         // Timestamp must be in seconds since UNIX epoch.
         // See: https://customer.io/docs/journeys/faq-timestamps/.
         customerPayload.created_at = Date.parse(customerPayload.created_at) / 1000
     }
 
-    let id = event.distinct_id
+    // let id = event.distinct_id
+    let id: string | null = null
 
-    if (customer.email) {
-        customerPayload.email = customer.email
-        if (identifyByEmail) {
-            id = customer.email
-        }
+    // if (customer.email) {
+    //     customerPayload.email = customer.email
+    //     if (identifyByEmail) {
+    //         id = customer.email
+    //     }
+    // }
+
+    if (event.$set?.userId) {
+        id = String(event.$set?.userId)
+    } else if (event.$set?.cio_id) {
+        id = String(event.$set?.cio_id)
+    } else if (customer.email && identifyByEmail) {
+        id = customer.email
+    } else {
+        id = event.distinct_id
     }
+
+    if (!id) {
+        throw new RetryError('No valid identifiers found (userId, cio_id, email or distinct_id)')
+    }
+
     // Create or update customer
     // See https://www.customer.io/docs/api/#operation/identify
-    await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
+    await callCustomerIoApi(
+        'PUT',
+        host,
+        `/api/v1/customers/${encodeURIComponent(id)}`,
+        authorizationHeader,
+        customerPayload
+    )
 
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
     // Track event
     // See https://www.customer.io/docs/api/#operation/track
-    await callCustomerIoApi('POST', host, `/api/v1/customers/${id}/events`, authorizationHeader, {
+    await callCustomerIoApi('POST', host, `/api/v1/customers/${encodeURIComponent(id)}/events`, authorizationHeader, {
         name: event.event,
         type: eventType,
         timestamp: eventTimestamp,
@@ -246,18 +272,18 @@ function isEmail(email: string): boolean {
     return re.test(email.toLowerCase())
 }
 
-function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
-    const setAttribute = event.$set
-    if (typeof setAttribute !== 'object' || !setAttribute['email']) {
-        return null
+//renamed getEmailFromEvent to accomodate new identifiers
+function getIdentifiersFromEvent(
+    event: ProcessedPluginEvent
+): {
+    email: string | null
+    userId: string | null
+    cio_id: string | null
+} {
+    const setAttribute = event.$set || {}
+    return {
+        email: isEmail(setAttribute.email) ? setAttribute.email : isEmail(event.distinct_id) ? event.distinct_id : null,
+        userId: setAttribute.userId ? String(setAttribute.userId) : null,
+        cio_id: setAttribute.cio_id ? String(setAttribute.cio_id) : null
     }
-    const emailCandidate = setAttribute['email']
-    if (isEmail(emailCandidate)) {
-        return emailCandidate
-    }
-    // Use distinct ID as a last resort
-    if (isEmail(event.distinct_id)) {
-        return event.distinct_id
-    }
-    return null
 }
