@@ -73,9 +73,9 @@ async function callCustomerIoApi(
     if (response.status === 408 || response.status === 429 || responseStatusClass === 5) {
         const responseData = await response.json()
         throw new RetryError(
-            `Received a potentially intermittent error from the Customer.io API. Response ${
-                response.status
-            }: ${JSON.stringify(responseData)}`
+            `Received a potentially intermittent error from the Customer.io API. Response ${response.status}: ${JSON.stringify(
+                responseData
+            )}`
         )
     }
     if (responseStatusClass !== 2) {
@@ -94,12 +94,7 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
         'base64'
     )
     global.authorizationHeader = `Basic ${customerioBase64AuthToken}`
-    global.eventNames = config.eventsToSend
-        ? (config.eventsToSend as string)
-              .split(',')
-              .map((name) => name.trim())
-              .filter(Boolean)
-        : []
+    global.eventNames = config.eventsToSend ? config.eventsToSend.split(',').filter(Boolean) : []
     global.eventsConfig =
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
     global.identifyByEmail = config.identifyByEmail === 'Yes'
@@ -117,57 +112,82 @@ export const setupPlugin: Plugin<CustomerIoPluginInput>['setupPlugin'] = async (
     console.log('Successfully authenticated with Customer.io. Completing setupPlugin.')
 }
 
-export const onEvent: Plugin<CustomerIoPluginInput>['onEvent'] = async (event, meta) => {
+export const exportEvents: Plugin<CustomerIoPluginInput>['exportEvents'] = async (events, meta) => {
     const { global, config } = meta
     // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
     if (!global.eventNames) {
         throw new RetryError('Cannot run exportEvents because setupPlugin failed!')
     }
-
-    if (global.eventNames.length !== 0 && !global.eventNames.includes(event.event)) {
+    const batchInfo = `Batch of ${events.length} event${events.length !== 1 ? 's' : ''} received.`
+    if (events.length === 0) {
+        console.log(`${batchInfo} Skipping.`)
         return
     }
-    if (event.event === '$create_alias') {
-        return
-    }
-
-    const customer: Customer = await syncCustomerMetadata(event, meta.storage)
-    console.debug(customer)
-    console.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
-    if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
-        return
-    }
-
-    await exportSingleEvent(
-        event,
-        customer,
-        global.authorizationHeader,
-        config.host || DEFAULT_HOST,
-        global.identifyByEmail
+    const filteredWithCustomers: [ProcessedPluginEvent, Customer][] = await Promise.all(
+        events.map(async (event) => [event, await syncCustomerMetadata(event, meta.storage)])
     )
+    const nameFilteredEventsWithCustomers = filteredWithCustomers.filter(
+        ([event]) => global.eventNames.length === 0 || global.eventNames.includes(event.event)
+    )
+    const filterCreateAlias = nameFilteredEventsWithCustomers.filter(([event]) => event.event !== '$create_alias')
+    const fullyFilteredEventsWithCustomers = filterCreateAlias.filter(([, customer]) =>
+        shouldCustomerBeTracked(customer, global.eventsConfig)
+    )
+
+    const finalEventCount = fullyFilteredEventsWithCustomers.length
+    if (finalEventCount === 0) {
+        console.log(`${batchInfo} None passed filtering. Skipping.`)
+        return
+    } else {
+        console.log(
+            `${batchInfo} ${finalEventCount === events.length ? 'All' : finalEventCount} passed filtering. Proceeding...`
+        )
+    }
+
+    const customerCreateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => !customer.existsAlready)
+    const customerUpdateEvents = fullyFilteredEventsWithCustomers.filter(([, customer]) => customer.existsAlready)
+    await Promise.all(
+        customerCreateEvents.map(async ([event, customer]) =>
+            exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST, global.identifyByEmail)
+        )
+    )
+    await Promise.all(
+        customerUpdateEvents.map(async ([event, customer]) =>
+            exportSingleEvent(event, customer, global.authorizationHeader, config.host || DEFAULT_HOST, global.identifyByEmail)
+        )
+    )
+
+    console.log(`Sent ${finalEventCount} event${finalEventCount !== 1 ? 's' : ''} to Customer.io.`)
 }
 
-async function syncCustomerMetadata(event: ProcessedPluginEvent, storage: StorageExtension): Promise<Customer> {
-    const customerStatusKey = `customer-status/${event.distinct_id}`
-    const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
-    const customerStatus = new Set(customerStatusArray) as Customer['status']
+async function syncCustomerMetadata(
+    event: ProcessedPluginEvent,
+    storage: StorageExtension
+): Promise<Customer> {
+    const statusKey = `customer-status/${event.distinct_id}`
+    const statusArray = (await storage.get(statusKey, [])) as string[]
+    const customerStatus = new Set(statusArray) as Customer['status']
     const customerExistsAlready = customerStatus.has('seen')
-    const email = getEmailFromEvent(event)
 
-    console.debug(email)
-
-    // Update customer status
+    // Always mark as seen
     customerStatus.add('seen')
     if (event.event === '$identify') {
         customerStatus.add('identified')
     }
-    if (email) {
+
+    // Determine email from event or storage
+    let email = getEmailFromEvent(event)
+    if (email && isEmail(email)) {
         customerStatus.add('with_email')
+        // Persist last known valid email
+        await storage.set(`customer-email/${event.distinct_id}`, email)
+    } else if (!email) {
+        // Retrieve stored email if present
+        email = (await storage.get(`customer-email/${event.distinct_id}`, null)) as string | null
     }
 
-    if (customerStatus.size > customerStatusArray.length) {
-        await storage.set(customerStatusKey, Array.from(customerStatus))
-    }
+    // Persist status flags
+    await storage.set(statusKey, Array.from(customerStatus))
 
     return {
         status: customerStatus,
@@ -196,53 +216,61 @@ async function exportSingleEvent(
     host: string,
     identifyByEmail: boolean
 ) {
+    // Skip if no email available
+    if (!customer.email) {
+        // No email ever known for this user
+        return
+    }
+
     // Clean up properties
     if (event.properties) {
         delete event.properties['$set']
         delete event.properties['$set_once']
     }
 
+    // Build customer payload
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
         _update: customer.existsAlready,
         identifier: event.distinct_id
     }
 
-    if ("created_at" in customerPayload) {
-        // Timestamp must be in seconds since UNIX epoch.
-        // See: https://customer.io/docs/journeys/faq-timestamps/.
-        customerPayload.created_at = Date.parse(customerPayload.created_at) / 1000
-    }
-
+    // Use email as identifier for Customer.io
     let id = event.distinct_id
-
     if (customer.email) {
         customerPayload.email = customer.email
         if (identifyByEmail) {
             id = customer.email
         }
     }
+
     // Create or update customer
-    // See https://www.customer.io/docs/api/#operation/identify
     await callCustomerIoApi('PUT', host, `/api/v1/customers/${id}`, authorizationHeader, customerPayload)
 
+    // Determine event type for Customer.io
     const eventType = event.event === '$pageview' ? 'page' : event.event === '$screen' ? 'screen' : 'event'
     const eventTimestamp = (event.timestamp ? new Date(event.timestamp).valueOf() : Date.now()) / 1000
-    // Track event
-    // See https://www.customer.io/docs/api/#operation/track
-    await callCustomerIoApi('POST', host, `/api/v1/customers/${id}/events`, authorizationHeader, {
-        name: event.event,
-        type: eventType,
-        timestamp: eventTimestamp,
-        data: event.properties || {}
-    })
+
+    // Track the event
+    await callCustomerIoApi(
+        'POST',
+        host,
+        `/api/v1/customers/${id}/events`,
+        authorizationHeader,
+        {
+            name: event.event,
+            type: eventType,
+            timestamp: eventTimestamp,
+            data: event.properties || {}
+        }
+    )
 }
 
 function isEmail(email: string): boolean {
     if (typeof email !== 'string') {
         return false
     }
-    const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+    const re = /^(([^<>()[\\]\\.,;:\\s@"]+(\\.[^<>()[\\]\\.,;:\\s@"]+)*)|(".+"))@((\\[[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\])|(([a-zA-Z\\-0-9]+\\.)+[a-zA-Z]{2,}))$/
     return re.test(email.toLowerCase())
 }
 
@@ -252,12 +280,8 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
         return null
     }
     const emailCandidate = setAttribute['email']
-    if (isEmail(emailCandidate)) {
+    if (typeof emailCandidate === 'string') {
         return emailCandidate
-    }
-    // Use distinct ID as a last resort
-    if (isEmail(event.distinct_id)) {
-        return event.distinct_id
     }
     return null
 }
