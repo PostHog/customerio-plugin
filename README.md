@@ -1,3 +1,5 @@
+> ⚠️ This plugin is archived and has been replaced with our new Destination https://posthog.com/docs/cdp/destinations/customerio
+
 # Customer.io Plugin
 
 Send event data into [Customer.io](https://customer.io/). User emails will also be sent if available.
